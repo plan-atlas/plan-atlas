@@ -1,6 +1,6 @@
 # Design: plans across several repositories
 
-Status: accepted 2026-11-03, after a second-opinion review. Findings marked [R#] come from that review and were checked against the code.
+Status: accepted 2026-11-03 (Step 1 done); Steps 2–3 revised 2026-11-04. Findings marked [R#] come from that review and were checked against the code.
 
 ## Problem
 
@@ -45,15 +45,22 @@ One canonical `plan-atlas.workspace.json`, kept in a hub repository (or one desi
 
 ## Step 2: CI across repositories
 
-- The action will pass `--head-ref` from `$GITHUB_HEAD_REF` for coordinated branches [R2, open-2].
-- Action input `workspace`: a local path, or `owner/repo:path@ref` for the hub's canonical file [open-1]. In CI the workspace file is read from the **base branch or the hub**, never from the pull request's head, and `path` entries are rejected [R6]: a pull request must not be able to point the action at other files on the runner or at other repositories the token can read.
-- Private repositories need a token with `contents: read` on the listed repositories (fine-grained PAT or GitHub App), input `token`. Least privilege: no write scopes.
-- Fork pull requests get no secrets. Only for a fork pull request does the action pass `--allow-missing`, and unreadable entries are reported in the summary without counting toward `fail-on: warn` [R6]. For pull requests from the same repository an unreadable entry stays an ERROR, so an expired token is not silent.
+Decided 2026-11-04 (product owner): plan-atlas suggests and people decide, so the Action reports by default (`fail-on: none`) and annotates plan files; heuristic matching of positional files is replaced by an explicit `self`.
+
+- **Inputs** (added to action.yml): `workspace` — a repository-relative path, or `owner/repo:path@ref` for a hub's canonical file; `self` — the namespace (or namespaces, space-separated) this repository owns in the workspace. With `workspace` set, `self` is required; the action fails with "could not run" (exit 2) when it is missing or names no entry.
+- **Explicit replacement.** For every namespace in `self`, the entry's file is read from this checkout (the pull request's working tree) instead of being fetched; every other entry is fetched at its `ref`. A positional plan file is matched to an entry only through `self`, never by guessing. CLI: `--self <ns>` (repeatable) on `check`, `build`, `status` with `--workspace`; without `--self`, today's positional matching stays for local use. The lone-file and namespace heuristics are not used when `--self` is given. A `self` entry whose file is missing in the checkout is V0.35 unreadable (ERROR, or WARN with `--allow-missing`).
+- **Where the workspace file comes from.** On `pull_request` events the action reads a repository-relative workspace file from the **base** commit (`git show <base>:<path>`), never from the head, and rejects any `path` entry (exit 2) except entries in `self`, which come from the checkout. With `owner/repo:path@ref` it fetches that file through `gh`. On `push` it reads the file from the checkout (the branch is already merged).
+- **Coordinated branches:** the action passes `--head-ref "$GITHUB_HEAD_REF"` on pull requests [R2].
+- **Tokens:** input `token` (default `github.token`) is passed as `GH_TOKEN`; private repositories need a token with `contents: read` on the listed repositories (fine-grained PAT or GitHub App). No write scopes.
+- **Fork pull requests** get no secrets: only then does the action pass `--allow-missing`; unreadable entries are reported as WARN annotations and in the summary. For pull requests from the same repository an unreadable entry stays an ERROR finding (reported, and blocking only with `fail-on: error`), so an expired token is visible.
+- **Report, not block:** findings from the workspace check are reported like the per-repository ones (annotations on the plan file of their namespace when it is a `self` file; otherwise listed in the summary under the other repository's name). `fail-on` applies unchanged.
 - `coupling` stays per repository.
 
 ## Step 3: combined map and health issue
 
-- A hub workflow on schedule, `workflow_dispatch` or `repository_dispatch` from each repository's main branch runs `build --workspace` and `status --workspace`, publishes `atlas.html` to GitHub Pages, and updates one "Plan health" issue in place. A workflow `concurrency` group serializes runs [R9].
+- **`plan-atlas health --workspace <file> [--out <dir>]`**: builds the combined map (same as `build --workspace`) and writes `health.md`: one Markdown report of every ERROR and WARN finding and every status suggestion, grouped by repository, newest-relevant first, with the commit SHA each entry was read at. No network beyond the workspace fetch.
+- **Hub workflow** (shipped as `examples/hub/plan-health.yml`, documented in GETTING-STARTED): on `schedule`, `workflow_dispatch` and `repository_dispatch` (type `plan-atlas`), runs `health`, publishes `atlas.html` to GitHub Pages (`actions/upload-pages-artifact` + `actions/deploy-pages`), and creates or updates one issue titled "Plan health" (found by a hidden marker `<!-- plan-atlas:health -->` in its body) with `health.md`, through `gh issue`. A workflow `concurrency: plan-atlas-health` group serializes runs [R9]. Permissions: `contents: read`, `issues: write`, `pages: write`, `id-token: write`.
+- Each member repository can trigger the hub after merges with a small step (`gh api repos/<hub>/dispatches -f event_type=plan-atlas`), documented, optional.
 - This is where two pull requests that each passed against the other's `main` but conflict after both merge become visible.
 
 ## Testing
