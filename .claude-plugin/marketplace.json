@@ -1,0 +1,12 @@
+{
+  "name": "plan-atlas",
+  "description": "plan-atlas, a linter for plans that coding agents maintain.",
+  "owner": { "name": "plan-atlas contributors" },
+  "plugins": [
+    {
+      "name": "plan-atlas",
+      "source": "./",
+      "description": "Onboarding skill: extract one plan document, run check and status, build the map, offer a setup pull request."
+    }
+  ]
+}

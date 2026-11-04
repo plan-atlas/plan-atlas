@@ -1,0 +1,84 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://raw.githubusercontent.com/plan-atlas/plan-atlas/main/schema/plan-atlas.schema.json",
+  "title": "plan-atlas plan file",
+  "description": "Work items, their groups and dependencies. Group status, aggregated edges and overlaps are derived by plan-atlas; never write them here.",
+  "type": "object",
+  "required": ["version", "nodes"],
+  "properties": {
+    "$schema": { "type": "string" },
+    "version": { "const": 1 },
+    "title": { "type": "string" },
+    "namespace": { "type": "string", "pattern": "^[A-Za-z0-9._-]+$", "description": "Prefix other files use to reference this file's nodes: <namespace>:<id>. Defaults to the id of the single root node." },
+    "areas": { "type": "object", "additionalProperties": { "type": "string" }, "description": "Code areas work can touch, key → label. Overlap rules compare these." },
+    "nodes": { "type": "array", "items": { "$ref": "#/$defs/node" } },
+    "rules": {
+      "type": "object",
+      "properties": {
+        "maxPageNodes": { "type": "integer", "minimum": 3, "default": 15 },
+        "overlaps": { "type": "array", "items": { "$ref": "#/$defs/overlapRule" } }
+      },
+      "additionalProperties": false
+    },
+    "claims": { "type": "array", "items": { "$ref": "#/$defs/claim" }, "description": "Statements that an item in another plan depends on one of ours. Checked against that plan when both are loaded (V9)." },
+    "externalRefs": { "type": "array", "items": { "type": "object", "required": ["id"], "properties": { "id": { "type": "string" }, "meaning": { "type": "string" } } } }
+  },
+  "additionalProperties": false,
+  "$defs": {
+    "id": { "type": "string", "pattern": "^[^:]+$", "minLength": 1 },
+    "ref": { "type": "string", "minLength": 1, "description": "An id in this file, or <namespace>:<id> in another file." },
+    "node": {
+      "type": "object",
+      "required": ["id", "title", "parent"],
+      "properties": {
+        "id": { "$ref": "#/$defs/id" },
+        "title": { "type": "string", "minLength": 1 },
+        "parent": { "type": ["string", "null"] },
+        "sources": { "type": "array", "items": { "type": "string" }, "description": "Groups: plan files items below may cite as their source." },
+        "status": { "enum": ["done", "open"], "description": "Items only. Groups derive theirs." },
+        "evidence": { "type": "string", "description": "Why the status is what it is." },
+        "inferred": { "type": "boolean", "description": "true when the status is a judgement, not stated in the plan." },
+        "kind": { "type": "string", "description": "Free tag used by overlap rules, e.g. \"move\" for structural refactors. \"release\" marks a published release item (never a group); its id is <package>@<version>, e.g. sdk@2.1.0." },
+        "tag": { "type": "string", "minLength": 1, "description": "Git tag of a release item, e.g. \"v2.1.0\". Only when kind is \"release\"." },
+        "touches": { "type": "array", "items": { "type": "string" } },
+        "source": { "type": "string", "description": "Where the item is defined: file and section." },
+        "dependsOn": { "type": "array", "items": { "$ref": "#/$defs/dep" } },
+        "links": { "type": "array", "items": { "$ref": "#/$defs/link" }, "description": "Items and groups: the issues, pull requests or branches that carry this node's work. Fill only from what the plan or repository states. status --github and status --git compare them with the status." }
+      },
+      "additionalProperties": false
+    },
+    "link": {
+      "type": "string",
+      "pattern": "^(?:(?:[A-Za-z0-9][A-Za-z0-9-]*/[A-Za-z0-9._-]+)?#[1-9][0-9]*|branch:[^\\s~^:?*[\\\\]+)$",
+      "description": "#123 (an issue or pull request in the repository being checked), owner/repo#123, or branch:<name>."
+    },
+    "dep": {
+      "type": "object",
+      "required": ["id", "type"],
+      "properties": {
+        "id": { "$ref": "#/$defs/ref" },
+        "type": { "enum": ["hard", "order"], "description": "hard: must finish first. order: planned sequence, not a block." },
+        "source": { "type": "string", "description": "Required when the dependency crosses groups or files (V8)." },
+        "quote": { "type": "string", "description": "A short quote (≤ 15 words) from the source. Required with source." }
+      },
+      "additionalProperties": false
+    },
+    "selector": {
+      "type": "object",
+      "properties": { "kind": { "type": "string" }, "idPrefix": { "type": "string" } },
+      "additionalProperties": false
+    },
+    "overlapRule": {
+      "type": "object",
+      "required": ["id", "a", "b"],
+      "properties": { "id": { "type": "string" }, "a": { "$ref": "#/$defs/selector" }, "b": { "$ref": "#/$defs/selector" }, "message": { "type": "string" } },
+      "additionalProperties": false
+    },
+    "claim": {
+      "type": "object",
+      "required": ["from", "to"],
+      "properties": { "from": { "$ref": "#/$defs/ref" }, "to": { "$ref": "#/$defs/ref" }, "type": { "enum": ["hard", "order"], "default": "hard", "description": "Defaults to hard: the other plan must wait." }, "source": { "type": "string" }, "quote": { "type": "string" } },
+      "additionalProperties": false
+    }
+  }
+}

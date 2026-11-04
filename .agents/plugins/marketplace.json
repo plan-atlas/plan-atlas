@@ -1,0 +1,20 @@
+{
+  "name": "plan-atlas",
+  "interface": {
+    "displayName": "plan-atlas"
+  },
+  "plugins": [
+    {
+      "name": "plan-atlas",
+      "source": {
+        "source": "local",
+        "path": "./"
+      },
+      "policy": {
+        "installation": "AVAILABLE",
+        "authentication": "ON_INSTALL"
+      },
+      "category": "Developer Tools"
+    }
+  ]
+}

@@ -1,0 +1,9 @@
+{
+  "name": "plan-atlas",
+  "description": "Onboard a repository to plan-atlas: extract one plan document into checked plan data, suggest statuses from git and GitHub, and build the drill-down map.",
+  "author": { "name": "plan-atlas contributors" },
+  "homepage": "https://github.com/plan-atlas/plan-atlas",
+  "repository": "https://github.com/plan-atlas/plan-atlas",
+  "license": "MIT",
+  "keywords": ["plans", "linter", "dependencies", "spec-kit"]
+}

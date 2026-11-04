@@ -1,0 +1,24 @@
+{
+  "name": "plan-atlas",
+  "version": "0.1.1",
+  "description": "Layered, validated maps of plans: agents write the plan data, CI checks every level agrees, people drill down in one HTML page.",
+  "license": "MIT",
+  "author": "plan-atlas contributors",
+  "repository": { "type": "git", "url": "git+https://github.com/plan-atlas/plan-atlas.git" },
+  "private": true,
+  "type": "module",
+  "engines": { "node": ">=22.18" },
+  "bin": { "plan-atlas": "src/cli.ts" },
+  "exports": { ".": "./src/index.ts" },
+  "files": ["src", "viewer", "schema"],
+  "scripts": {
+    "test": "node --test \"test/**/*.test.ts\"",
+    "typecheck": "tsc -p tsconfig.json",
+    "example": "node src/cli.ts build examples/bookshop/plan.json examples/warehouse/plan.json --out examples/atlas",
+    "check": "node src/cli.ts check"
+  },
+  "devDependencies": {
+    "@types/node": "^22.18.0",
+    "typescript": "^5.9.0"
+  }
+}

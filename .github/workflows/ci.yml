@@ -1,0 +1,29 @@
+name: ci
+on:
+  push:
+  pull_request:
+permissions:
+  contents: read
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+      # npm install, not npm ci: there is no package-lock.json (npm ci refuses to run without one),
+      # and the only dependencies are TypeScript and @types/node for the type check.
+      - run: npm install --no-audit --no-fund
+      - run: npm test
+      - run: npx tsc -p tsconfig.json
+  action:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+      - uses: ./
+        with:
+          plans: examples/bookshop/plan.json examples/warehouse/plan.json
+          status: git

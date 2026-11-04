@@ -1,0 +1,53 @@
+{
+  "$schema": "../../schema/plan-atlas.schema.json",
+  "version": 1,
+  "title": "Bookshop",
+  "namespace": "bookshop",
+  "areas": {
+    "catalog": "Catalog context",
+    "checkout": "Checkout context",
+    "web": "Web storefront",
+    "ci": "CI pipeline"
+  },
+  "nodes": [
+    { "id": "bookshop", "title": "Bookshop", "parent": null },
+
+    { "id": "refactor", "title": "Context refactor", "parent": "bookshop", "sources": ["docs/plans/refactor.md"] },
+    { "id": "R1", "title": "R1 Module-boundary lint rules", "parent": "refactor", "status": "done",
+      "evidence": "refactor.md §4 marks R1 merged (#12)", "touches": ["ci"], "source": "docs/plans/refactor.md §4" },
+    { "id": "R2", "title": "R2 Move catalog code", "parent": "refactor", "status": "open", "kind": "move",
+      "touches": ["catalog"], "source": "docs/plans/refactor.md §4",
+      "dependsOn": [{ "id": "R1", "type": "hard" }] },
+    { "id": "R3", "title": "R3 Move checkout code", "parent": "refactor", "status": "open", "kind": "move",
+      "touches": ["checkout"], "source": "docs/plans/refactor.md §4",
+      "dependsOn": [{ "id": "R2", "type": "order", "source": "docs/plans/refactor.md §5", "quote": "one context per pull request, catalog first" }] },
+
+    { "id": "checkout", "title": "Checkout v2", "parent": "bookshop", "sources": ["docs/plans/checkout-v2.md"] },
+    { "id": "C1", "title": "C1 Cart API v2", "parent": "checkout", "status": "done",
+      "evidence": "checkout-v2.md §2 status table: shipped", "touches": ["checkout"], "source": "docs/plans/checkout-v2.md §2" },
+    { "id": "C2", "title": "C2 Payment retries", "parent": "checkout", "status": "open",
+      "touches": ["checkout"], "source": "docs/plans/checkout-v2.md §3",
+      "dependsOn": [{ "id": "C1", "type": "hard" }] },
+    { "id": "C3", "title": "C3 Checkout page redesign", "parent": "checkout", "status": "open",
+      "touches": ["web"], "source": "docs/plans/checkout-v2.md §4",
+      "dependsOn": [
+        { "id": "C2", "type": "hard" },
+        { "id": "T1", "type": "hard", "source": "docs/plans/checkout-v2.md §4", "quote": "ship the redesign only once visual diffs run in CI" }
+      ] },
+
+    { "id": "tooling", "title": "Tooling", "parent": "bookshop", "sources": ["docs/plans/tooling.md"] },
+    { "id": "T1", "title": "T1 Visual diff in CI", "parent": "tooling", "status": "open",
+      "touches": ["ci", "web"], "source": "docs/plans/tooling.md §1" },
+    { "id": "T2", "title": "T2 Release notes generator", "parent": "tooling", "status": "done", "inferred": true,
+      "evidence": "the plan does not say; the generator already runs on main", "touches": ["ci"], "source": "docs/plans/tooling.md §2" }
+  ],
+  "rules": {
+    "maxPageNodes": 15,
+    "overlaps": [
+      { "id": "move-vs-work", "a": { "kind": "move" }, "b": {}, "message": "A structural move and other work change the same area" }
+    ]
+  },
+  "claims": [
+    { "from": "R2", "to": "warehouse:W2", "type": "hard", "source": "docs/plans/refactor.md §6", "quote": "warehouse sync waits for the catalog move" }
+  ]
+}

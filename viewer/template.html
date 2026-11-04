@@ -1,0 +1,650 @@
+<!doctype html>
+<html lang="en">
+<meta charset="utf-8">
+<title>plan-atlas</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<style>
+/* Layout: drafting sheet — header strip, a pannable drawing sheet, a side ledger (bottom sheet on phones) */
+:root {
+  --paper: #eef1ee; --sheet: #fafbf9; --ink: #1c2a33; --muted: #5a6971; --rule: #d3dbd7; --grid: #dfe5e1;
+  --accent: #24598a; --accent-soft: #e2ecf5;
+  --done-bg: #e6e9e7; --done-fg: #6a7479; --done-line: #a3abaf;
+  --ready-bg: #ddeed9; --ready-line: #4f8a46;
+  --blocked-bg: #fbe7cb; --blocked-line: #b5741a;
+  --stub-bg: #dfe9f3; --stub-line: #4a77a3;
+  --warn: #b0413e; --warn-soft: #f6dedc;
+  --shadow: 0 1px 2px rgba(28,42,51,.08), 0 4px 14px rgba(28,42,51,.06);
+  --f-body: "Noto Sans TC", "Microsoft JhengHei", "PingFang TC", system-ui, sans-serif;
+  --f-mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+}
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) {
+  --paper: #0e1418; --sheet: #121a1f; --ink: #dbe4e8; --muted: #8d9ba3; --rule: #27333a; --grid: #1c262c;
+  --accent: #7fb2e1; --accent-soft: #1a2b3b;
+  --done-bg: #1b2327; --done-fg: #87939a; --done-line: #4a565c;
+  --ready-bg: #1b3220; --ready-line: #6db163;
+  --blocked-bg: #392911; --blocked-line: #d59a3c;
+  --stub-bg: #19293a; --stub-line: #79a5d0;
+  --warn: #e47470; --warn-soft: #3a1d1c;
+  --shadow: 0 1px 2px rgba(0,0,0,.4), 0 4px 14px rgba(0,0,0,.3);
+  color-scheme: dark } }
+:root[data-theme="dark"] {
+  --paper: #0e1418; --sheet: #121a1f; --ink: #dbe4e8; --muted: #8d9ba3; --rule: #27333a; --grid: #1c262c;
+  --accent: #7fb2e1; --accent-soft: #1a2b3b;
+  --done-bg: #1b2327; --done-fg: #87939a; --done-line: #4a565c;
+  --ready-bg: #1b3220; --ready-line: #6db163;
+  --blocked-bg: #392911; --blocked-line: #d59a3c;
+  --stub-bg: #19293a; --stub-line: #79a5d0;
+  --warn: #e47470; --warn-soft: #3a1d1c;
+  --shadow: 0 1px 2px rgba(0,0,0,.4), 0 4px 14px rgba(0,0,0,.3);
+  color-scheme: dark }
+
+html, body { height: 100%; }
+body { background: var(--paper); color: var(--ink); font-family: var(--f-body); font-size: 14px; line-height: 1.5; overflow: hidden; }
+.app { height: 100%; box-sizing: border-box; display: grid; grid-template-rows: auto 1fr; padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px)); padding-block: 12px; gap: 10px; }
+.mono { font-family: var(--f-mono); font-variant-numeric: tabular-nums; }
+header { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 16px; min-width: 0; }
+.brand { display: flex; align-items: baseline; gap: 10px; min-width: 0; }
+.brand h1 { margin: 0; font-size: 17px; font-weight: 700; letter-spacing: .02em; text-wrap: balance; }
+.sheet-no { font-family: var(--f-mono); font-size: 11px; color: var(--muted); letter-spacing: .08em; text-transform: uppercase; }
+nav.crumbs { display: flex; align-items: center; gap: 6px; font-size: 13px; min-width: 0; flex-wrap: wrap; }
+nav.crumbs a { color: var(--accent); text-decoration: none; }
+nav.crumbs a:hover { text-decoration: underline; }
+nav.crumbs .sep { color: var(--muted); }
+nav.crumbs .here { font-weight: 700; }
+.tools { margin-left: auto; display: flex; flex-wrap: wrap; gap: 6px; }
+button { font: inherit; font-size: 12.5px; color: var(--ink); background: var(--sheet); border: 1px solid var(--rule); border-radius: 6px; padding: 5px 10px; cursor: pointer; }
+button:hover { border-color: var(--accent); }
+button:focus-visible, a:focus-visible, .node:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+button.icon { width: 30px; padding: 5px 0; font-family: var(--f-mono); }
+main { display: grid; grid-template-columns: 250px minmax(0, 1fr) 330px; gap: 10px; min-height: 0; }
+.app.ol-off main { grid-template-columns: minmax(0, 1fr) 330px; }
+.app.ol-off .outline, .ol-scrim, #olClose { display: none; }
+/* outline: the whole hierarchy as a toggle list; the canvas stays one page per group */
+.outline { background: var(--sheet); border: 1px solid var(--rule); border-radius: 8px; min-height: 0; min-width: 0; display: flex; flex-direction: column; }
+.ol-head { display: flex; align-items: center; gap: 6px; padding: 9px 8px 8px 12px; border-bottom: 1px solid var(--rule); }
+.ol-head h2 { margin: 0; flex: 1; font-size: 11px; letter-spacing: .1em; text-transform: uppercase; color: var(--muted); font-weight: 600; }
+.ol-head button { font-size: 11.5px; padding: 3px 8px; }
+.ol-tree { flex: 1; min-height: 0; overflow: auto; padding: 6px 4px 14px; }
+.ol-tree ul { list-style: none; margin: 0; padding: 0; }
+.ol-row { display: flex; align-items: center; padding-left: calc(var(--d, 0) * 14px); }
+.ol-tg, .ol-sp { flex: none; width: 20px; }
+.ol-tg { height: 24px; padding: 0; border: none; background: none; border-radius: 4px; color: var(--muted); font-size: 12px; line-height: 1; }
+.ol-tg:hover { color: var(--accent); background: var(--accent-soft); }
+.ol-go { flex: 1; min-width: 0; display: flex; align-items: center; gap: 6px; border: none; background: none; border-radius: 5px; padding: 3px 6px; text-align: left; font-size: 12.5px; line-height: 1.4; }
+.ol-go:hover { background: var(--paper); }
+.ol-go[aria-current="page"] { background: var(--accent-soft); color: var(--accent); box-shadow: inset 2px 0 0 var(--accent); }
+.ol-go.sel { background: var(--paper); box-shadow: inset 2px 0 0 var(--ink); }
+.ol-t { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ol-g > .ol-row .ol-t, .ol-top .ol-t { font-weight: 600; }
+.ol-n { flex: none; font-family: var(--f-mono); font-size: 10.5px; color: var(--muted); font-variant-numeric: tabular-nums; }
+.ol-bk { flex: none; font-family: var(--f-mono); font-size: 10px; line-height: 1; padding: 2px 5px; border-radius: 999px; color: var(--blocked-line); background: var(--blocked-bg); border: 1px solid var(--blocked-line); }
+.ol-id { flex: 0 1 auto; max-width: 62%; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-family: var(--f-mono); font-size: 11px; font-weight: 600; }
+.ol-go .chip.release { flex: none; font-size: 10px; padding: 2px 5px; }
+.ol-it.done { color: var(--done-fg); }
+.dot { flex: none; width: 8px; height: 8px; border-radius: 50%; box-sizing: border-box; border: 1.5px solid; }
+.dot.done { background: var(--done-bg); border-color: var(--done-line); }
+.dot.ready { background: var(--ready-line); border-color: var(--ready-line); }
+.dot.blocked { background: var(--blocked-line); border-color: var(--blocked-line); }
+/* page bar: way back and where this page sits, top-left of the canvas */
+.pagebar { position: absolute; left: 10px; top: 8px; z-index: 2; box-sizing: border-box; max-width: calc(100% - 20px); display: flex; flex-wrap: wrap; align-items: center; gap: 5px 8px; background: var(--sheet); border: 1px solid var(--rule); border-radius: 8px; padding: 5px 10px 5px 5px; box-shadow: var(--shadow); font-size: 12.5px; cursor: default; }
+.pagebar[hidden] { display: none; }
+.pagebar button { flex-shrink: 0; width: auto; padding: 3px 9px; }
+.ctx { flex: 1 1 14em; display: flex; flex-wrap: wrap; align-items: center; gap: 4px 8px; min-width: 0; }
+.ctx a { color: var(--accent); text-decoration: none; }
+.ctx a:hover { text-decoration: underline; }
+.ctx .path { display: flex; align-items: center; gap: 6px; min-width: 0; }
+.ctx .path > * { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 18em; }
+.ctx .path > .sep { flex: none; color: var(--muted); }
+.ctx .chips { display: flex; flex-wrap: wrap; gap: 4px; }
+.sibs[hidden] { display: none; }
+.sibs { flex-basis: 100%; display: flex; flex-wrap: wrap; align-items: baseline; gap: 2px 10px; font-size: 11.5px; color: var(--muted); padding: 1px 0 1px 4px; }
+.sibs > * { max-width: 13em; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.sibs a { color: var(--accent); text-decoration: none; }
+.sibs a:hover { text-decoration: underline; }
+.sibs b { color: var(--ink); }
+.canvas { position: relative; overflow: hidden; background-color: var(--sheet); border: 1px solid var(--rule); border-radius: 8px;
+  background-image: radial-gradient(var(--grid) 1px, transparent 1.2px); background-size: 20px 20px; touch-action: none; cursor: grab; min-height: 0; }
+.canvas.panning { cursor: grabbing; }
+.world { position: absolute; left: 0; top: 0; transform-origin: 0 0; }
+svg.wires { position: absolute; left: 0; top: 0; overflow: visible; pointer-events: none; }
+.status-line { position: absolute; left: 10px; bottom: 8px; right: 120px; font-size: 11px; color: var(--muted); pointer-events: none; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.zoom { position: absolute; right: 10px; bottom: 8px; display: flex; gap: 4px; }
+.node { position: absolute; box-sizing: border-box; border: 1.5px solid var(--rule); border-radius: 8px; background: var(--sheet); padding: 8px 10px; box-shadow: var(--shadow); cursor: pointer; user-select: none; display: flex; flex-direction: column; gap: 3px; overflow: hidden; }
+.node.dragging { cursor: grabbing; z-index: 5; }
+.node .row { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; min-width: 0; }
+.node .id { font-family: var(--f-mono); font-size: 11.5px; font-weight: 600; letter-spacing: .02em; }
+.node .ttl { font-size: 12.5px; line-height: 1.35; overflow: hidden; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; }
+.node .meta { font-family: var(--f-mono); font-size: 10.5px; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.chip { flex-shrink: 0; font-size: 10.5px; line-height: 1; padding: 3px 6px; border-radius: 999px; white-space: nowrap; border: 1px solid transparent; }
+.node.done { background: var(--done-bg); border-color: var(--done-line); color: var(--done-fg); }
+.node.ready { background: var(--ready-bg); border-color: var(--ready-line); }
+.node.blocked { background: var(--blocked-bg); border-color: var(--blocked-line); }
+.node.release { border-left-width: 4px; border-left-color: var(--accent); }
+.chip.done { background: var(--sheet); color: var(--done-fg); border-color: var(--done-line); }
+.chip.ready { background: var(--sheet); color: var(--ready-line); border-color: var(--ready-line); }
+.chip.blocked { background: var(--sheet); color: var(--blocked-line); border-color: var(--blocked-line); }
+.chip.warn { background: var(--warn-soft); color: var(--warn); border-color: var(--warn); }
+.chip.note { background: var(--sheet); color: var(--muted); border-color: var(--rule); }
+.chip.release { background: var(--accent-soft); color: var(--accent); border-color: var(--accent); font-family: var(--f-mono); letter-spacing: .04em; }
+.chip.ref { display: inline-block; background: var(--sheet); color: var(--ink); border-color: var(--rule); font-family: var(--f-mono); font-size: 11px; text-decoration: none; }
+a.chip.ref { color: var(--accent); border-color: var(--accent); }
+a.chip.ref:hover { background: var(--accent-soft); }
+.node.warn { border-color: var(--warn); border-width: 2.5px; }
+.node.stub { background: var(--stub-bg); border: 1.5px dashed var(--stub-line); clip-path: polygon(14px 0, calc(100% - 14px) 0, 100% 50%, calc(100% - 14px) 100%, 14px 100%, 0 50%); padding-inline: 20px; justify-content: center; box-shadow: none; }
+.node.stub .ttl { color: var(--stub-line); font-weight: 700; -webkit-line-clamp: 1; }
+.node.group { padding: 10px 12px; gap: 5px; border-width: 2px; border-color: var(--ink); }
+.node.group.done { background: var(--done-bg); border-color: var(--done-line); }
+.node.group.warn { border-color: var(--warn); border-width: 3px; }
+.node.group .ttl { font-size: 14px; font-weight: 700; -webkit-line-clamp: 1; }
+.node.group .chips { display: flex; flex-wrap: wrap; gap: 4px; }
+.node.group .open { font-size: 11px; color: var(--accent); margin-top: auto; }
+.node.sel { outline: 3px solid var(--accent); outline-offset: 2px; }
+.node.dim { opacity: .38; }
+.wire { fill: none; stroke: var(--muted); stroke-width: 1.6; }
+.wire.order { stroke-dasharray: 6 5; }
+.wire.overlap { stroke: var(--warn); stroke-dasharray: 2 5; stroke-width: 2; stroke-linecap: round; }
+.wire.hot { stroke: var(--accent); stroke-width: 2.6; }
+.wire.overlap.hot { stroke: var(--warn); stroke-width: 3; }
+.wire.dim, .wlabel.dim { opacity: .2; }
+.wlabel { font-family: var(--f-mono); font-size: 10.5px; fill: var(--muted); paint-order: stroke; stroke: var(--sheet); stroke-width: 4px; stroke-linejoin: round; }
+.wlabel.overlap { fill: var(--warn); font-family: var(--f-body); }
+.arrowhead { fill: var(--muted); }
+.arrowhead.hot { fill: var(--accent); }
+aside { background: var(--sheet); border: 1px solid var(--rule); border-radius: 8px; overflow: auto; min-height: 0; min-width: 0; }
+.ledger { padding: 14px 16px 20px; display: flex; flex-direction: column; gap: 16px; }
+.ledger h2 { margin: 0; font-size: 15px; line-height: 1.35; text-wrap: balance; }
+.ledger h3 { margin: 0 0 6px; font-size: 11px; letter-spacing: .1em; text-transform: uppercase; color: var(--muted); font-weight: 600; }
+.ledger p { margin: 0; color: var(--muted); font-size: 13px; }
+.ledger ul { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 7px; }
+.ledger li { font-size: 13px; line-height: 1.45; }
+.ledger .cite { display: block; font-family: var(--f-mono); font-size: 11px; color: var(--muted); word-break: break-all; }
+.ledger .quote { display: block; font-size: 12px; color: var(--muted); border-left: 2px solid var(--rule); padding-left: 6px; margin-top: 2px; }
+.ledger .link { background: none; border: none; padding: 0; color: var(--accent); font-family: var(--f-mono); font-size: 12.5px; font-weight: 600; cursor: pointer; text-align: left; }
+.ledger .link:hover { text-decoration: underline; }
+.kv { display: grid; grid-template-columns: auto 1fr; gap: 4px 10px; font-size: 13px; margin: 0; }
+.kv dt { color: var(--muted); }
+.kv dd { margin: 0; min-width: 0; word-break: break-word; }
+.legend { display: flex; flex-wrap: wrap; gap: 6px; }
+.callout { border-left: 3px solid var(--warn); background: var(--warn-soft); padding: 8px 10px; border-radius: 0 6px 6px 0; font-size: 12.5px; }
+.callout.info { border-left-color: var(--accent); background: var(--accent-soft); }
+.callout.warnlvl { border-left-color: var(--blocked-line); background: var(--blocked-bg); }
+textarea { width: 100%; box-sizing: border-box; min-height: 120px; font-family: var(--f-mono); font-size: 11.5px; background: var(--paper); color: var(--ink); border: 1px solid var(--rule); border-radius: 6px; padding: 8px; }
+.toast { position: absolute; left: 50%; top: 10px; transform: translateX(-50%); background: var(--ink); color: var(--sheet); font-size: 12.5px; padding: 6px 12px; border-radius: 6px; pointer-events: none; }
+@media (max-width: 1100px) {
+  main { grid-template-columns: 220px minmax(0, 1fr) 290px; }
+  .app.ol-off main { grid-template-columns: minmax(0, 1fr) 290px; }
+}
+@media (max-width: 760px) {
+  main, .app.ol-off main { grid-template-columns: minmax(0, 1fr); grid-template-rows: minmax(0, 1fr) minmax(0, 40%); }
+  .tools { margin-left: 0; }
+  .brand { flex: 1 1 0; }
+  .sheet-no { white-space: nowrap; }
+  .ctx .chips { display: none; }
+  /* the outline is an overlay here, opened from the header button */
+  .outline { display: none; position: fixed; z-index: 20; left: 0; top: 0; bottom: 0; width: min(320px, 86vw); border-radius: 0 8px 8px 0; box-shadow: var(--shadow); padding-top: env(safe-area-inset-top, 0px); }
+  .app.ol-open .outline { display: flex; }
+  .app.ol-open .ol-scrim { display: block; position: fixed; inset: 0; z-index: 19; background: rgba(14,20,24,.35); }
+  .app.ol-open #olClose { display: inline-block; }
+}
+@media (prefers-reduced-motion: no-preference) { .world.animate { transition: transform .25s ease; } }
+</style>
+
+<div class="app">
+  <header>
+    <button id="btnOutline" type="button" aria-controls="outline" aria-expanded="true" title="{{uiOutlineToggle}}">{{uiOutlineButton}}</button>
+    <div class="brand"><h1 id="docTitle">plan-atlas</h1><span class="sheet-no" id="sheetNo"></span></div>
+    <nav class="crumbs" id="crumbs" aria-label="{{uiHierarchy}}"></nav>
+    <div class="tools">
+      <button id="btnReset" type="button" title="{{uiResetHint}}">{{uiReset}}</button>
+      <button id="btnCopy" type="button">{{uiCopy}}</button>
+      <button id="btnPaste" type="button">{{uiPaste}}</button>
+    </div>
+  </header>
+  <main>
+    <nav class="outline" id="outline" aria-label="{{uiOutline}}">
+      <div class="ol-head"><h2>{{uiOutline}}</h2><button id="olFold" type="button" title="{{uiFoldHint}}">{{uiFold}}</button><button class="icon" id="olClose" type="button" aria-label="{{uiOutlineClose}}">×</button></div>
+      <div class="ol-tree" id="olTree"></div>
+    </nav>
+    <div class="ol-scrim" id="olScrim"></div>
+    <div class="canvas" id="canvas" tabindex="0" aria-label="{{uiCanvas}}">
+      <div class="world" id="world">
+        <svg class="wires" width="1" height="1" aria-hidden="true">
+          <defs>
+            <marker id="arr" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="arrowhead" d="M0,1 L10,5 L0,9 z"/></marker>
+            <marker id="arrHot" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="arrowhead hot" d="M0,1 L10,5 L0,9 z"/></marker>
+          </defs>
+          <g id="wireLayer"></g>
+        </svg>
+        <div id="nodeLayer"></div>
+      </div>
+      <div class="pagebar" id="pagebar" hidden>
+        <button id="btnUp" type="button">{{uiUp}}</button>
+        <button id="btnBack" type="button" title="{{uiBackHint}}">{{uiBack}}</button>
+        <div class="ctx" id="ctx"></div>
+        <div class="sibs" id="sibs" hidden></div>
+      </div>
+      <div class="status-line" id="statusLine"></div>
+      <div class="zoom">
+        <button class="icon" id="zIn" type="button" aria-label="{{uiZoomIn}}">+</button>
+        <button class="icon" id="zOut" type="button" aria-label="{{uiZoomOut}}">−</button>
+        <button class="icon" id="zFit" type="button" aria-label="{{uiFit}}">⤢</button>
+      </div>
+      <div class="toast" id="toast" hidden></div>
+    </div>
+    <aside><div class="ledger" id="ledger"></div></aside>
+  </main>
+</div>
+
+<script type="application/json" id="vm">/*PLAN_ATLAS_DATA*/</script>
+<script>
+(() => {
+const raw = document.getElementById('vm').textContent.trim();
+if (raw.startsWith('/*')) {
+  document.querySelector('main').innerHTML = '<div class="ledger" style="grid-column:1/-1;max-width:60ch"><h2>{{uiTemplateTitle}}</h2><p>{{uiTemplateHelp}}</p></div>';
+  return;
+}
+const VM = JSON.parse(raw);
+const PAGE_IDS = Object.keys(VM.pages);
+const SIZE = VM.sizes;
+const UI = VM.ui;
+const ui = (id, params = {}) => UI[id].replace(/\{(\w+)\}/g, (_, key) => String(params[key] ?? ''));
+const STATE_LABEL = { done: UI.uiDone, ready: UI.uiReady, blocked: UI.uiBlocked };
+const STORE_KEY = 'plan-atlas-layout:' + VM.title;
+const $ = (id) => document.getElementById(id);
+const esc = (s) => String(s ?? '').replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+const lid = (id) => String(id).split(':').pop();
+const shortTitle = (id, t) => (t.startsWith(lid(id) + ' ') ? t.slice(lid(id).length + 1) : t);
+const areaLabel = (a) => VM.areas[a] || a.split('/').pop();
+document.title = VM.title;
+$('docTitle').textContent = VM.title;
+
+// layout store: positions only, never dependencies
+let layout = {};
+try { layout = JSON.parse(localStorage.getItem(STORE_KEY) || '{}') || {}; } catch (e) { layout = {}; }
+const saveLayout = () => { try { localStorage.setItem(STORE_KEY, JSON.stringify(layout)); } catch (e) {} };
+const posOf = (page, n) => (layout[page] && layout[page][n.id]) || n.pos;
+
+const byHash = Object.fromEntries(PAGE_IDS.map((p) => [VM.pages[p].hash, p]));
+const pageFromHash = () => byHash[location.hash.slice(1)] || VM.top;
+let page = pageFromHash();
+let selected = null;
+const view = { tx: 20, ty: 20, s: 1 };
+
+// how many history entries this viewer added before the current one; "Back" only steps back through those
+let depth = 0;
+try { if (Number.isInteger(history.state?.pa)) depth = history.state.pa; else history.replaceState({ pa: 0 }, ''); } catch (e) {}
+function go(p, sel) {
+  selected = sel || null;
+  if (p !== page) {
+    page = p;
+    const h = VM.pages[p].hash;
+    if (location.hash.slice(1) !== h) { location.hash = h; try { history.replaceState({ pa: depth + 1 }, ''); depth++; } catch (e) {} }
+    render(true);
+  } else render(false);
+}
+window.addEventListener('hashchange', () => {
+  // an entry without our state came from a link or the address bar: one more step inside the viewer
+  if (Number.isInteger(history.state?.pa)) depth = history.state.pa;
+  else { depth++; try { history.replaceState({ pa: depth }, ''); } catch (e) {} }
+  const p = pageFromHash();
+  if (p !== page) { page = p; selected = null; render(true); } else updatePagebar();
+});
+const goItem = (id) => { const it = VM.items[id]; if (it) go(it.page ?? VM.top, id); };
+const goNode = (id) => (VM.groups[id] ? go(id) : goItem(id));
+
+function nodeHTML(n) {
+  if (n.type === 'group') {
+    const g = VM.groups[n.ref], c = g.counts;
+    return `<div class="ttl">${esc(g.title)}</div>
+      <div class="chips"><span class="chip done">${ui('uiDoneCount', { count: c.done })}</span><span class="chip ready">${ui('uiReadyCount', { count: c.ready })}</span><span class="chip blocked">${ui('uiBlockedCount', { count: c.blocked })}</span>${g.innerOverlaps ? `<span class="chip warn">${ui('uiInnerOverlaps', { count: g.innerOverlaps })}</span>` : ''}</div>
+      <div class="open">${ui('uiExpand', { count: g.children })}</div>`;
+  }
+  if (n.type === 'stub') {
+    if (n.external) return `<div class="ttl">↗ ${esc(n.ref)}</div><div class="meta">${UI.uiUnloaded}</div>`;
+    const g = VM.groups[n.ref];
+    if (g) return `<div class="ttl">↗ ${esc(g.title)}</div><div class="meta">${ui('uiOpenVisit', { count: g.counts.ready + g.counts.blocked })}</div>`;
+    const it = VM.items[n.ref];
+    return `<div class="ttl">↗ ${esc(lid(n.ref))} ${esc(shortTitle(n.ref, it.title))}</div><div class="meta">${ui('uiStateVisit', { state: STATE_LABEL[it.state] })}</div>`;
+  }
+  const it = VM.items[n.ref];
+  const tags = [];
+  if (it.inferred) tags.push(UI.uiInferred);
+  // a release id is <package>@<version>: the version goes on top, the package and tag below
+  const id = lid(n.ref), at = it.kind === 'release' ? id.lastIndexOf('@') : -1;
+  const head = at > 0 ? `<span class="chip release">${UI.uiRelease}</span><span class="id">${esc(id.slice(at + 1))}</span>` : `<span class="id">${esc(id)}</span>`;
+  const meta = at > 0 ? [id.slice(0, at), it.tag].filter(Boolean).join(' · ') : it.touches.map((a) => a.split('/').pop()).join(' · ');
+  return `<div class="row">${head}<span class="chip ${it.state}">${STATE_LABEL[it.state]}</span>${it.overlaps.length ? `<span class="chip warn">${UI.uiOverlap}</span>` : ''}${tags.map((t) => `<span class="chip note">${t}</span>`).join('')}</div>
+    <div class="ttl">${esc(shortTitle(n.ref, it.title))}</div>
+    <div class="meta">${esc(meta)}</div>`;
+}
+
+function render(fit) {
+  const pg = VM.pages[page];
+  $('sheetNo').textContent = ui('uiSheet', { index: PAGE_IDS.indexOf(page), last: PAGE_IDS.length - 1 });
+  $('crumbs').innerHTML = [...pg.trail.map((t) => `<a href="#${VM.pages[t.id].hash}">${esc(t.title)}</a><span class="sep">›</span>`), `<span class="here">${esc(pg.title)}</span>`].join('');
+  const layer = $('nodeLayer');
+  layer.innerHTML = '';
+  for (const n of pg.nodes) {
+    const [w, h] = SIZE[n.type], [x, y] = posOf(page, n);
+    const el = document.createElement('div');
+    const st = n.type === 'item' ? VM.items[n.ref].state : n.type === 'group' && VM.groups[n.ref].status === 'done' ? 'done' : '';
+    const rel = n.type === 'item' && VM.items[n.ref].kind === 'release' ? 'release' : '';
+    el.className = `node ${n.type} ${st} ${rel} ${n.warn ? 'warn' : ''}`;
+    el.style.cssText = `left:${x}px;top:${y}px;width:${w}px;height:${h}px`;
+    el.dataset.id = n.id;
+    el.tabIndex = 0;
+    el.setAttribute('role', 'button');
+    el.innerHTML = nodeHTML(n);
+    attachDrag(el, n);
+    el.addEventListener('keydown', (ev) => { if (ev.key === 'Enter' || ev.key === ' ') { ev.preventDefault(); activate(n); } });
+    layer.appendChild(el);
+  }
+  updatePagebar(); expandPath(); drawWires(); applyFocus(); renderLedger(); updateStatus(); scrollOutline();
+  if (fit) fitView();
+}
+
+function updatePagebar() {
+  const pg = VM.pages[page], up = pg.trail.length ? pg.trail[pg.trail.length - 1].id : null, g = VM.groups[page];
+  $('btnUp').hidden = !up;
+  if (up) $('btnUp').title = ui('uiBackTo', { title: VM.pages[up].title });
+  $('btnBack').hidden = depth < 1;
+  let h = '';
+  if (up) {
+    h += `<span class="path"><a href="#${VM.pages[up].hash}" title="${esc(ui('uiParentPage', { title: VM.pages[up].title }))}">${esc(VM.pages[up].title)}</a><span class="sep">›</span><b title="${esc(pg.title)}">${esc(pg.title)}</b></span>`;
+    if (g) h += `<span class="chips"><span class="chip done">${ui('uiDoneCount', { count: g.counts.done })}</span><span class="chip ready">${ui('uiReadyCount', { count: g.counts.ready })}</span><span class="chip blocked">${ui('uiBlockedCount', { count: g.counts.blocked })}</span></span>`;
+    const sibs = (VM.groups[up] ? VM.groups[up].kids : VM.roots).filter((k) => VM.groups[k]);
+    const few = sibs.length > 1 && sibs.length <= 8;
+    $('sibs').hidden = !few;
+    if (few) $('sibs').innerHTML = `<span>${UI.uiSiblings}</span>${sibs.map((k) => k === page ? `<b title="${esc(VM.groups[k].title)}">${esc(VM.groups[k].title)}</b>` : `<a href="#${VM.pages[k].hash}" title="${esc(VM.groups[k].title)}">${esc(VM.groups[k].title)}</a>`).join('')}`;
+  } else $('sibs').hidden = true;
+  $('ctx').innerHTML = h;
+  $('pagebar').hidden = !up && depth < 1;
+}
+$('btnUp').onclick = () => { const t = VM.pages[page].trail; if (t.length) go(t[t.length - 1].id); };
+$('btnBack').onclick = () => history.back();
+
+function box(n) { const [w, h] = SIZE[n.type], [x, y] = posOf(page, n); return { x, y, w, h, cx: x + w / 2, cy: y + h / 2 }; }
+function drawWires() {
+  const pg = VM.pages[page];
+  const byId = Object.fromEntries(pg.nodes.map((n) => [n.id, n]));
+  let html = '';
+  pg.edges.forEach((e, i) => {
+    const a = box(byId[e.from]), b = box(byId[e.to]);
+    let d, lx, ly;
+    if (e.kind === 'overlap') {
+      const mx = (a.cx + b.cx) / 2, my = (a.cy + b.cy) / 2 - 40;
+      d = `M${a.cx},${a.cy} Q${mx},${my} ${b.cx},${b.cy}`; lx = mx; ly = my + 16;
+    } else {
+      const fwd = b.x >= a.x + a.w - 1;
+      const x1 = fwd ? a.x + a.w : a.cx, y1 = fwd ? a.cy : (b.cy > a.cy ? a.y + a.h : a.y);
+      const x2 = fwd ? b.x : b.cx, y2 = fwd ? b.cy : (b.cy > a.cy ? b.y : b.y + b.h);
+      const dx = fwd ? Math.max(40, (x2 - x1) / 2) : 0, dy = fwd ? 0 : Math.max(40, Math.abs(y2 - y1) / 2) * Math.sign(y2 - y1 || 1);
+      d = `M${x1},${y1} C${x1 + dx},${y1 + dy} ${x2 - dx},${y2 - dy} ${x2},${y2}`;
+      lx = (x1 + x2) / 2; ly = (y1 + y2) / 2 - 5;
+    }
+    html += `<path class="wire ${e.kind}" data-i="${i}" d="${d}"${e.kind === 'overlap' ? '' : ' marker-end="url(#arr)"'}/>`;
+    const lbl = (e.kind === 'overlap' ? '⚠ ' : '') + e.label + (e.kind === 'order' ? (e.label ? UI.uiOrderSuffix : UI.uiOrder) : '');
+    if (lbl) html += `<text class="wlabel ${e.kind}" data-i="${i}" x="${lx}" y="${ly}" text-anchor="middle">${esc(lbl)}</text>`;
+  });
+  $('wireLayer').innerHTML = html;
+}
+function applyFocus() {
+  const pg = VM.pages[page];
+  const near = new Set();
+  pg.edges.forEach((e, i) => {
+    const hot = selected && (e.from === selected || e.to === selected);
+    if (hot) { near.add(e.from); near.add(e.to); }
+    document.querySelectorAll(`#wireLayer [data-i="${i}"]`).forEach((el) => {
+      el.classList.toggle('hot', !!hot);
+      el.classList.toggle('dim', !!selected && !hot);
+      if (el.tagName === 'path' && e.kind !== 'overlap') el.setAttribute('marker-end', hot ? 'url(#arrHot)' : 'url(#arr)');
+    });
+  });
+  for (const el of $('nodeLayer').children) {
+    el.classList.toggle('sel', el.dataset.id === selected);
+    el.classList.toggle('dim', !!selected && el.dataset.id !== selected && !near.has(el.dataset.id));
+  }
+}
+function updateStatus() {
+  const moved = Object.keys(layout[page] || {}).length;
+  $('statusLine').textContent = ui('uiStatus', { count: VM.pages[page].nodes.length, layout: moved ? ui('uiManual', { count: moved }) : UI.uiAuto });
+}
+
+function activate(n) {
+  if (n.type === 'group') return go(n.ref);
+  if (n.type === 'stub') {
+    if (n.external) { selected = n.id; applyFocus(); return renderLedger(); }
+    return goNode(n.ref);
+  }
+  selected = selected === n.id ? null : n.id;
+  applyFocus(); renderLedger();
+}
+function attachDrag(el, n) {
+  el.addEventListener('pointerdown', (ev) => {
+    if (ev.button !== 0) return;
+    ev.stopPropagation();
+    el.setPointerCapture(ev.pointerId);
+    const start = { x: ev.clientX, y: ev.clientY }, [ox, oy] = posOf(page, n);
+    let moved = false;
+    const move = (e2) => {
+      const dx = (e2.clientX - start.x) / view.s, dy = (e2.clientY - start.y) / view.s;
+      if (!moved && Math.hypot(dx, dy) * view.s < 4) return;
+      moved = true; el.classList.add('dragging');
+      const nx = Math.round(ox + dx), ny = Math.round(oy + dy);
+      (layout[page] ||= {})[n.id] = [nx, ny];
+      el.style.left = nx + 'px'; el.style.top = ny + 'px';
+      drawWires(); applyFocus();
+    };
+    const up = () => {
+      el.removeEventListener('pointermove', move); el.removeEventListener('pointerup', up); el.removeEventListener('pointercancel', up);
+      el.classList.remove('dragging');
+      if (moved) { saveLayout(); updateStatus(); } else activate(n);
+    };
+    el.addEventListener('pointermove', move); el.addEventListener('pointerup', up); el.addEventListener('pointercancel', up);
+  });
+}
+
+const canvas = $('canvas'), world = $('world');
+const applyView = () => { world.style.transform = `translate(${view.tx}px,${view.ty}px) scale(${view.s})`; };
+canvas.addEventListener('pointerdown', (ev) => {
+  if (ev.button !== 0 || ev.target.closest('.zoom, .pagebar')) return;
+  canvas.setPointerCapture(ev.pointerId); canvas.classList.add('panning');
+  const st = { x: ev.clientX, y: ev.clientY, tx: view.tx, ty: view.ty }; let moved = false;
+  const mv = (e) => { const dx = e.clientX - st.x, dy = e.clientY - st.y; if (Math.hypot(dx, dy) > 3) moved = true; view.tx = st.tx + dx; view.ty = st.ty + dy; applyView(); };
+  const up = () => { canvas.classList.remove('panning'); canvas.removeEventListener('pointermove', mv); canvas.removeEventListener('pointerup', up);
+    if (!moved && selected) { selected = null; applyFocus(); renderLedger(); } };
+  canvas.addEventListener('pointermove', mv); canvas.addEventListener('pointerup', up);
+});
+function zoomAt(f, cx, cy) {
+  const r = canvas.getBoundingClientRect(); cx ??= r.width / 2; cy ??= r.height / 2;
+  const s2 = Math.min(2.2, Math.max(0.12, view.s * f));
+  view.tx = cx - (cx - view.tx) * (s2 / view.s); view.ty = cy - (cy - view.ty) * (s2 / view.s); view.s = s2; applyView();
+}
+canvas.addEventListener('wheel', (ev) => { ev.preventDefault(); const r = canvas.getBoundingClientRect(); zoomAt(ev.deltaY < 0 ? 1.1 : 1 / 1.1, ev.clientX - r.left, ev.clientY - r.top); }, { passive: false });
+$('zIn').onclick = () => zoomAt(1.2); $('zOut').onclick = () => zoomAt(1 / 1.2); $('zFit').onclick = () => fitView();
+for (const b of document.querySelectorAll('.zoom button')) b.addEventListener('pointerdown', (e) => e.stopPropagation());
+function fitView() {
+  const pg = VM.pages[page], r = canvas.getBoundingClientRect();
+  if (!pg.nodes.length || !r.width) return;
+  let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity;
+  for (const n of pg.nodes) { const c = box(n); x0 = Math.min(x0, c.x); y0 = Math.min(y0, c.y - 30); x1 = Math.max(x1, c.x + c.w); y1 = Math.max(y1, c.y + c.h); }
+  // keep the fitted drawing below the page bar
+  const pad = 36, top = $('pagebar').hidden ? 0 : $('pagebar').offsetHeight + 4, hh = r.height - top;
+  view.s = Math.max(0.12, Math.min(1.15, (r.width - pad * 2) / (x1 - x0), (hh - pad * 2) / (y1 - y0)));
+  view.tx = (r.width - (x1 - x0) * view.s) / 2 - x0 * view.s; view.ty = top + (hh - (y1 - y0) * view.s) / 2 - y0 * view.s;
+  world.classList.add('animate'); applyView(); setTimeout(() => world.classList.remove('animate'), 300);
+}
+new ResizeObserver(() => fitView()).observe(canvas);
+
+function toast(msg) { const t = $('toast'); t.textContent = msg; t.hidden = false; clearTimeout(toast.t); toast.t = setTimeout(() => { t.hidden = true; }, 1800); }
+$('btnReset').onclick = () => { delete layout[page]; saveLayout(); render(true); toast(UI.uiResetDone); };
+$('btnCopy').onclick = async () => {
+  const text = JSON.stringify(layout, null, 2);
+  try { await navigator.clipboard.writeText(text); toast(UI.uiCopied); } catch (e) { showLayoutBox(text, false); }
+};
+$('btnPaste').onclick = () => showLayoutBox('', true);
+function showLayoutBox(text, importing) {
+  $('ledger').innerHTML = `<div><h3>${importing ? UI.uiPaste : UI.uiLayout}</h3>
+    <p>${importing ? UI.uiImportHelp : UI.uiCopyHelp}</p></div>
+    <textarea id="layoutText" spellcheck="false">${esc(text)}</textarea>
+    <div style="display:flex;gap:6px">${importing ? `<button id="applyLayout" type="button">${UI.uiApply}</button>` : ''}<button id="closeBox" type="button">${UI.uiClose}</button></div>
+    <p id="layoutMsg"></p>`;
+  const ta = $('layoutText'); if (!importing) { ta.focus(); ta.select(); }
+  $('closeBox').onclick = () => renderLedger();
+  if (importing) $('applyLayout').onclick = () => {
+    try {
+      const inc = JSON.parse(ta.value || '{}'); let n = 0;
+      for (const [p, nodes] of Object.entries(inc)) {
+        if (!VM.pages[p]) continue;
+        const ids = new Set(VM.pages[p].nodes.map((x) => x.id));
+        for (const [id, xy] of Object.entries(nodes)) if (ids.has(id) && Array.isArray(xy) && xy.length === 2 && xy.every(Number.isFinite)) { (layout[p] ||= {})[id] = xy; n++; }
+      }
+      saveLayout(); render(true); toast(ui('uiApplied', { count: n }));
+    } catch (e) { $('layoutMsg').textContent = UI.uiInvalidJson; }
+  };
+}
+
+// links arrive with their address already worked out (or none); the page only shows them
+const linkChips = (ls) => `<span class="legend">${ls.map((l) => l.href ? `<a class="chip ref" href="${esc(l.href)}" target="_blank" rel="noopener noreferrer">${esc(l.text)}</a>` : `<span class="chip ref">${esc(l.text)}</span>`).join('')}</span>`;
+const link = (id) => `<button class="link" type="button" data-goto="${esc(id)}">${esc(lid(id))}</button>`;
+const where = (id, here) => { const it = VM.items[id]; if (!it || it.page === here) return ''; const g = VM.groups[it.page]; return g ? ` <span style="color:var(--muted)">${esc(ui('uiLocation', { title: g.title }))}</span>` : ''; };
+function findingsHTML(list) {
+  if (!list.length) return '';
+  const cls = { ERROR: '', WARN: 'warnlvl', INFO: 'info' };
+  return `<ul>${list.map((f) => `<li><div class="callout ${cls[f.level]}"><b class="mono">${f.code}</b> ${esc(f.message)}${(f.nodes || []).filter((x) => VM.items[x] || VM.groups[x]).slice(0, 4).map((x) => ' ' + link(x)).join('')}</div></li>`).join('')}</ul>`;
+}
+function renderLedger() {
+  const L = $('ledger');
+  const pg = VM.pages[page];
+  let h = '';
+  const selNode = selected && pg.nodes.find((n) => n.id === selected);
+  if (selNode && selNode.type === 'item') {
+    const id = selNode.ref, it = VM.items[id];
+    h += `<div><div class="row" style="display:flex;flex-wrap:wrap;gap:6px;align-items:center;margin-bottom:4px"><span class="mono" style="font-weight:600">${esc(lid(id))}</span><span class="chip ${it.state}">${STATE_LABEL[it.state]}</span>${it.inferred ? `<span class="chip note">${UI.uiStateInferred}</span>` : ''}${it.kind ? `<span class="chip ${it.kind === 'release' ? 'release' : 'note'}">${esc(it.kind)}</span>` : ''}</div>
+      <h2>${esc(shortTitle(id, it.title))}</h2></div>
+      <dl class="kv"><dt>${UI.uiSource}</dt><dd class="mono" style="font-size:11.5px">${esc(it.source || UI.uiNone)}</dd>
+      ${it.tag ? `<dt>${UI.uiTag}</dt><dd class="mono">${esc(it.tag)}</dd>` : ''}
+      ${it.evidence ? `<dt>${UI.uiEvidence}</dt><dd>${esc(it.evidence)}</dd>` : ''}
+      ${it.links.length ? `<dt>${UI.uiLinks}</dt><dd>${linkChips(it.links)}</dd>` : ''}
+      <dt>${UI.uiTouches}</dt><dd>${it.touches.length ? it.touches.map((a) => esc(areaLabel(a))).join('<br>') : `<span style="color:var(--muted)">${UI.uiUnspecified}</span>`}</dd></dl>`;
+    const hard = it.deps.filter((d) => d.type === 'hard'), order = it.deps.filter((d) => d.type === 'order');
+    const depLi = (d) => {
+      const t = VM.items[d.id];
+      const head = t ? `${link(d.id)} ${esc(shortTitle(d.id, t.title))}${where(d.id, it.page)} <span class="chip ${t.state}">${STATE_LABEL[t.state]}</span>` : `<span class="mono">${esc(d.id)}</span> <span class="chip note">${UI.uiUnloaded}</span>`;
+      return `<li>${head}${d.quote ? `<span class="quote">${esc(d.quote)}</span>` : ''}${d.source ? `<span class="cite">${esc(d.source)}</span>` : ''}</li>`;
+    };
+    if (hard.length) h += `<div><h3>${UI.uiPrereqs}</h3><ul>${hard.map(depLi).join('')}</ul></div>`;
+    if (order.length) h += `<div><h3>${UI.uiAfter}</h3><ul>${order.map(depLi).join('')}</ul></div>`;
+    if (it.dependents.length) h += `<div><h3>${UI.uiDependents}</h3><ul>${it.dependents.map((d) => `<li>${link(d.id)} ${esc(shortTitle(d.id, VM.items[d.id].title))}${where(d.id, it.page)}${d.type === 'order' ? ` <span class="chip note">${UI.uiOrder}</span>` : ''}</li>`).join('')}</ul></div>`;
+    if (it.overlaps.length) h += `<div><h3>${UI.uiSharedWork}</h3><div class="callout">${esc(VM.rules[it.overlaps[0].rule] || '')}${UI.uiOverlapHelp}</div><ul style="margin-top:8px">${it.overlaps.map((o) => `<li>${link(o.id)} ${esc(shortTitle(o.id, VM.items[o.id].title))}${where(o.id, it.page)}<span class="cite">${esc(areaLabel(o.area))}</span></li>`).join('')}</ul></div>`;
+    h += findingsHTML(VM.findings.filter((f) => (f.nodes || []).includes(id)));
+  } else if (selNode && selNode.type === 'stub' && selNode.external) {
+    h += `<div><h2>${esc(selNode.ref)}</h2><p>${UI.uiExternalHelp}</p></div>`;
+  } else {
+    const g = VM.groups[page];
+    if (g) {
+      const c = g.counts;
+      h += `<div><h2>${esc(g.title)}</h2><p>${UI.uiGroupHelp}</p></div>
+        <div class="legend"><span class="chip done">${ui('uiDoneCount', { count: c.done })}</span><span class="chip ready">${ui('uiReadyCount', { count: c.ready })}</span><span class="chip blocked">${ui('uiBlockedCount', { count: c.blocked })}</span>${g.innerOverlaps ? `<span class="chip warn">${ui('uiInnerOverlaps', { count: g.innerOverlaps })}</span>` : ''}</div>`;
+      if (g.links.length) h += `<div><h3>${UI.uiLinks}</h3>${linkChips(g.links)}</div>`;
+      if (g.sources.length) h += `<div><h3>${UI.uiSources}</h3><ul>${g.sources.map((s) => `<li class="mono" style="font-size:11.5px;word-break:break-all">${esc(s)}</li>`).join('')}</ul></div>`;
+    } else {
+      h += `<div><h2>${esc(pg.title)}</h2><p>${UI.uiMapHelp}</p></div>`;
+    }
+    const orders = pg.edges.filter((e) => e.kind === 'order');
+    if (orders.length) h += `<div><h3>${UI.uiPageOrders}</h3><ul>${orders.flatMap((e) => e.items.map(([a, b]) => `<li>${link(a)} → ${link(b)}</li>`)).join('')}</ul></div>`;
+    const ovs = pg.edges.filter((e) => e.kind === 'overlap');
+    if (ovs.length) h += `<div><h3>${UI.uiPageOverlaps}</h3><ul>${ovs.flatMap((e) => e.items.map(([a, b, area]) => `<li>${link(a)} ↔ ${link(b)}<span class="cite">${esc(areaLabel(area))}</span></li>`)).join('')}</ul></div>`;
+    const onPage = new Set(pg.nodes.map((n) => n.ref));
+    const scoped = VM.findings.filter((f) => f.level !== 'INFO' && (page === VM.top || (f.nodes || []).some((x) => onPage.has(x) || (VM.items[x] && VM.items[x].page === page))));
+    const errN = VM.findings.filter((f) => f.level === 'ERROR').length, warnN = VM.findings.filter((f) => f.level === 'WARN').length;
+    h += `<div><h3>${UI.uiValidation}</h3>${errN + warnN ? `<p style="margin-bottom:8px">${ui('uiValidationCounts', { errors: errN, warnings: warnN, scope: page === VM.top ? '' : UI.uiPageScope })}</p>` : `<div class="callout info">${UI.uiClean}</div>`}${findingsHTML(scoped.slice(0, 30))}</div>`;
+    const infos = VM.findings.filter((f) => f.level === 'INFO');
+    if (infos.length && page === VM.top) h += `<div><h3>${ui('uiNotes', { count: infos.length })}</h3>${findingsHTML(infos.slice(0, 12))}</div>`;
+  }
+  h += `<div><h3>${UI.uiLegend}</h3><div class="legend"><span class="chip done">${UI.uiDone}</span><span class="chip ready">${UI.uiReady}</span><span class="chip blocked">${UI.uiBlocked}</span><span class="chip warn">${UI.uiSharedWork}</span><span class="chip release">${UI.uiRelease}</span></div><p style="margin-top:6px">${UI.uiLegendHelp}</p></div>`;
+  L.innerHTML = h;
+  L.querySelectorAll('[data-goto]').forEach((b) => { b.onclick = () => goNode(b.dataset.goto); });
+  markOutline();
+}
+
+// outline: VM.roots and VM.groups[g].kids in plan order; counts and states are read from VM as they are
+const OL_KEY = 'plan-atlas-outline:' + VM.title;
+const app = document.querySelector('.app'), tree = $('olTree'), narrow = matchMedia('(max-width: 760px)');
+let olSaved = {};
+try { olSaved = JSON.parse(localStorage.getItem(OL_KEY) || '{}') || {}; } catch (e) { olSaved = {}; }
+const olOpen = new Set(Array.isArray(olSaved.open) ? olSaved.open : []);
+let olAuto = new Set(), olPage = null, olN = 0;
+const saveOutline = () => { try { localStorage.setItem(OL_KEY, JSON.stringify({ open: [...olOpen], off: app.classList.contains('ol-off') })); } catch (e) {} };
+function olHTML(id, d) {
+  const g = VM.groups[id];
+  if (g) {
+    const c = g.counts, k = `ol-k${olN++}`;
+    return `<li class="ol-g"><div class="ol-row" style="--d:${d}"><button class="ol-tg" type="button" data-tg="${esc(id)}" aria-expanded="false" aria-controls="${k}" aria-label="${esc(ui('uiChildren', { title: g.title }))}">▸</button><button class="ol-go" type="button" data-page="${esc(id)}" title="${esc(g.title)}"><span class="ol-t">${esc(g.title)}</span>${c.blocked ? `<span class="ol-bk" title="${ui('uiBlockedItems', { count: c.blocked })}">${c.blocked}</span>` : ''}<span class="ol-n" title="${ui('uiProgress', { done: c.done, total: g.items })}">${c.done}/${g.items}</span></button></div><ul id="${k}" hidden>${g.kids.map((x) => olHTML(x, d + 1)).join('')}</ul></li>`;
+  }
+  const it = VM.items[id];
+  if (!it) return '';
+  const l = lid(id), at = it.kind === 'release' ? l.lastIndexOf('@') : -1;
+  const head = at > 0 ? `<span class="chip release" title="${UI.uiRelease} ${esc(l)}">${esc(l.slice(at + 1))}</span>` : `<span class="ol-id">${esc(l)}</span>`;
+  return `<li><div class="ol-row" style="--d:${d}"><span class="ol-sp"></span><button class="ol-go ol-it ${it.state}" type="button" data-item="${esc(id)}" title="${esc(it.title)} · ${STATE_LABEL[it.state]}"><span class="dot ${it.state}"></span>${head}<span class="ol-t">${esc(shortTitle(id, it.title))}</span></button></div></li>`;
+}
+tree.innerHTML = `<ul>${VM.groups[VM.top] ? '' : `<li class="ol-top"><div class="ol-row"><button class="ol-go" type="button" data-page="${esc(VM.top)}"><span class="ol-t">${esc(VM.pages[VM.top].title)}</span></button></div></li>`}${VM.roots.map((r) => olHTML(r, 0)).join('')}</ul>`;
+const olToggles = Object.fromEntries([...tree.querySelectorAll('[data-tg]')].map((b) => [b.dataset.tg, b]));
+const olSet = (g) => {
+  const b = olToggles[g], on = olOpen.has(g) || olAuto.has(g);
+  b.setAttribute('aria-expanded', String(on)); b.textContent = on ? '▾' : '▸';
+  $(b.getAttribute('aria-controls')).hidden = !on;
+};
+// the path to the current page opens by itself; only what a person toggles is remembered
+function expandPath() {
+  if (olPage === page) return;
+  olPage = page;
+  olAuto = new Set([...VM.pages[page].trail.map((t) => t.id), page].filter((g) => olToggles[g]));
+  for (const g in olToggles) olSet(g);
+}
+function markOutline() {
+  for (const b of tree.querySelectorAll('[aria-current], .sel')) { b.removeAttribute('aria-current'); b.classList.remove('sel'); }
+  for (const b of tree.querySelectorAll('[data-page]')) if (b.dataset.page === page) b.setAttribute('aria-current', 'page');
+  if (selected && VM.items[selected]) for (const b of tree.querySelectorAll('[data-item]')) if (b.dataset.item === selected) b.classList.add('sel');
+}
+function scrollOutline() {
+  const el = tree.querySelector('.ol-go.sel') || tree.querySelector('[aria-current="page"]');
+  if (!el || !tree.clientHeight) return;
+  const r = el.getBoundingClientRect(), t = tree.getBoundingClientRect();
+  if (r.top < t.top || r.bottom > t.bottom) tree.scrollTop += r.top - t.top - t.height / 3;
+}
+tree.addEventListener('click', (ev) => {
+  const b = ev.target.closest('button');
+  if (!b) return;
+  if (b.dataset.tg) {
+    const g = b.dataset.tg;
+    if (olOpen.has(g) || olAuto.has(g)) { olOpen.delete(g); olAuto.delete(g); } else olOpen.add(g);
+    olSet(g); saveOutline(); return;
+  }
+  if (b.dataset.page) go(b.dataset.page); else if (b.dataset.item) goItem(b.dataset.item);
+  if (narrow.matches) setOverlay(false);
+});
+$('olFold').onclick = () => { olOpen.clear(); olAuto.clear(); for (const g in olToggles) olSet(g); saveOutline(); };
+const outlineShown = () => (narrow.matches ? app.classList.contains('ol-open') : !app.classList.contains('ol-off'));
+const syncOlBtn = () => $('btnOutline').setAttribute('aria-expanded', String(outlineShown()));
+function setOverlay(on) {
+  app.classList.toggle('ol-open', on); syncOlBtn();
+  if (on) { scrollOutline(); (tree.querySelector('[aria-current="page"]') || tree.querySelector('button'))?.focus(); }
+}
+$('btnOutline').onclick = () => {
+  if (narrow.matches) return setOverlay(!app.classList.contains('ol-open'));
+  app.classList.toggle('ol-off'); saveOutline(); syncOlBtn();
+  if (outlineShown()) scrollOutline();
+};
+$('olClose').onclick = () => { setOverlay(false); $('btnOutline').focus(); };
+$('olScrim').onclick = () => setOverlay(false);
+document.addEventListener('keydown', (ev) => { if (ev.key === 'Escape' && narrow.matches && app.classList.contains('ol-open')) { setOverlay(false); $('btnOutline').focus(); } });
+narrow.addEventListener('change', () => { app.classList.remove('ol-open'); syncOlBtn(); });
+if (olSaved.off) app.classList.add('ol-off');
+syncOlBtn();
+
+applyView();
+render(true);
+})();
+</script>
+</html>

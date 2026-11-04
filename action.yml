@@ -1,0 +1,57 @@
+name: plan-atlas
+description: Find possible contradictions in plan files, run coupling on pull requests and list status suggestions in the job summary and as annotations.
+author: plan-atlas contributors
+inputs:
+  plans:
+    description: Plan files, as globs separated by spaces or newlines (for example "plans/*.json").
+    required: true
+  against:
+    description: A committed atlas.json for check --against. Empty skips the comparison.
+    required: false
+    default: ''
+  coupling:
+    description: On pull requests, run coupling for each plan file that exists on the base branch. Needs actions/checkout with fetch-depth 0.
+    required: false
+    default: 'true'
+  status:
+    description: Status suggestions from git (status --git .), github (status --github with the token) or none. Suggestions never fail the job.
+    required: false
+    default: git
+  token:
+    description: Token for status github. Only read-only queries are made.
+    required: false
+    default: ${{ github.token }}
+  fail-on:
+    description: none (default) only reports; error fails the step on an ERROR from check or coupling; warn also on a WARN. A run that could not run at all always fails. Findings appear as annotations on the plan files either way.
+    required: false
+    default: none
+  lang:
+    description: Output language, en or zh-TW.
+    required: false
+    default: en
+runs:
+  using: composite
+  steps:
+    # The sources are TypeScript, which Node 22.18 and later runs directly. Use the runner's
+    # node when it can; otherwise set up Node 22 (which then stays on the PATH for later steps).
+    - id: node
+      shell: bash
+      run: |
+        if node "$GITHUB_ACTION_PATH/src/cli.ts" --help > /dev/null 2>&1; then
+          echo "ready=true" >> "$GITHUB_OUTPUT"
+        fi
+    - if: steps.node.outputs.ready != 'true'
+      uses: actions/setup-node@v5
+      with:
+        node-version: 22
+        package-manager-cache: false
+    - shell: bash
+      run: bash "$GITHUB_ACTION_PATH/action/run.sh"
+      env:
+        PA_PLANS: ${{ inputs.plans }}
+        PA_AGAINST: ${{ inputs.against }}
+        PA_COUPLING: ${{ inputs.coupling }}
+        PA_STATUS: ${{ inputs.status }}
+        PA_FAIL_ON: ${{ inputs.fail-on }}
+        PLAN_ATLAS_LANG: ${{ inputs.lang }}
+        GH_TOKEN: ${{ inputs.token }}

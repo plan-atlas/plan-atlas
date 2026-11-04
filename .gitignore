@@ -1,0 +1,6 @@
+node_modules/
+atlas/
+examples/atlas/
+# Proof-of-concept data from private repositories stays local
+poc/
+*.log

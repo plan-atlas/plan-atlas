@@ -1,0 +1,18 @@
+{
+  "$schema": "../../schema/plan-atlas.schema.json",
+  "version": 1,
+  "title": "Warehouse",
+  "namespace": "warehouse",
+  "areas": { "sync": "Stock sync service", "catalog": "Catalog mirror" },
+  "nodes": [
+    { "id": "warehouse", "title": "Warehouse", "parent": null, "sources": ["plans/sync.md"] },
+    { "id": "W1", "title": "W1 Stock events", "parent": "warehouse", "status": "done",
+      "evidence": "sync.md §1: done", "touches": ["sync"], "source": "plans/sync.md §1" },
+    { "id": "W2", "title": "W2 Catalog sync", "parent": "warehouse", "status": "open",
+      "touches": ["sync", "catalog"], "source": "plans/sync.md §2",
+      "dependsOn": [
+        { "id": "W1", "type": "hard" },
+        { "id": "bookshop:R2", "type": "hard", "source": "plans/sync.md §2", "quote": "needs the bookshop catalog move to land first" }
+      ] }
+  ]
+}
