@@ -49,7 +49,7 @@ Decided 2026-11-04 (product owner, after a second-opinion review): the Action re
 
 ### CLI
 
-- **`--self <ns>`** (repeatable) and **`--self-repo <owner/repo>`** on `check`, `build`, `status` and `health` with `--workspace`. `--self-repo` selects every entry whose `github` equals it, compared without case. Both may be given; the self set is their union.
+- **`--self <ns>`** (repeatable) and **`--self-repo <owner/repo>`** on `check`, `build` and `status` with `--workspace` (not `health`, which reads every entry from where the workspace says). `--self-repo` selects every entry whose `github` equals it, compared without case. Both may be given; the self set is their union.
   - A self entry is read from `<current directory>/<file>`, whatever its `github`, `path` or `ref`. It is an input file like a positional one: confinement applies (V0.3), and an unreadable self file is V0.35 ERROR even with `--allow-missing`, which is for entries read from elsewhere.
   - With a self option, positional plan files are exit 2 and §G10.2 matching is not used. A `--self` that names no entry, or a `--self-repo` that selects none, is exit 2.
   - **V0.36 (WARN)**: with `GITHUB_REPOSITORY` set, a self entry whose `github` is another repository, or an entry of this repository (compared without case) left out of the self set. A transferred repository keeps running, and the gap is visible. A WARN does not stop the run (§G8.5 stops only on ERROR). Self entries with `path` get no V0.36.
@@ -75,17 +75,18 @@ Decided 2026-11-04 (product owner, after a second-opinion review): the Action re
 
 - **`plan-atlas health --workspace <file> [--out <dir>] [--no-status]`**, a thin composition:
   - Writes what `build --workspace` writes, plus `health.md` and `health-issue.md`, into `--out` (default `atlas`).
-  - `health.md` reports every ERROR and WARN finding and every status suggestion, grouped by repository in workspace order, ERROR before WARN before suggestions within each, with the ref and commit SHA each entry was read at.
+  - `health.md` reports every ERROR and WARN finding and every status suggestion, grouped by repository in workspace order, ERROR before WARN before suggestions within each, with the namespace, ref and commit SHA of each entry. A finding about an entry itself (V0.32 `path` in a fetched workspace, V0.34, V0.35, V0.36) carries that entry's namespace, so it is reported under its repository, not as a general finding.
   - `health-issue.md` is the same report cut at whole lines to at most 60,000 characters (issue bodies are capped at 65,536), ending with "N more findings: see the run artifact". Its first line is the hidden marker `<!-- plan-atlas:health -->`, its second the run time.
   - Plan text (messages, refs, paths) appears only inside fenced code blocks, with a fence longer than any backtick run in it: an `@name` in a plan title then notifies nobody, and HTML or Markdown in it renders as text.
-  - Status suggestions use `status --workspace`: one GraphQL query per `github` entry, so `health` needs the same read token as the fetch. `--no-status` skips them.
+  - Status suggestions use `status --workspace`: one GraphQL query per `github` entry. For private members a fine-grained token then needs `issues: read` and `pull_requests: read` besides `contents: read`; without them every linked item would show as a false `MISSING-LINK`. `--no-status` skips the suggestions, and `contents: read` is then enough.
   - Exit 0 whenever the reports were written, including with ERROR findings; exit 2 when it could not run.
   - The Markdown comes from a pure `healthReport()` in `src/render/health.ts`, tested without a network.
 - **Hub workflow**, shipped as `examples/hub/plan-health.yml` and documented in GETTING-STARTED:
-  - Runs on `schedule` and `workflow_dispatch`, with `concurrency: plan-atlas-health` [R9]. Permissions: `contents: read`, `issues: write`. A read token for private members comes from a secret, separate from the `github.token` that edits the issue.
-  - Uploads `atlas/` (map and reports) as a workflow artifact.
+  - Runs on `schedule` and `workflow_dispatch`, with `concurrency: plan-atlas-health` [R9]. Top-level `permissions: {}`; each job asks for its own, so the step that reads members never holds a write token:
+    - job `health` (`contents: read`): runs `health` with the read secret, or the job's read-only `github.token` when no secret is set (public members), and uploads `atlas/` (map and reports) as a workflow artifact;
+    - job `issue` (`issues: write`, needs `health`): downloads the artifact and updates the issue with its own `github.token`.
   - Updates one open issue titled "Plan health": it lists open issues with the label `plan-atlas` (`gh issue list --json number,body`) and takes the one whose body starts with the marker, since search may not index HTML comments and a marker quoted inside a finding must not count. It creates the issue (and the label) when none is open, and otherwise edits the body on every run, so the run-time line shows the last run; editing a body sends no notification.
-  - **GitHub Pages is opt-in**, as a separate job behind `vars.PLAN_ATLAS_PAGES == 'true'` with `pages: write`, `id-token: write` and `environment: github-pages`. On Free, Pro and Team plans the Pages site of a private repository is public, and the combined map carries every member's titles, quotes and evidence; the example and GETTING-STARTED say so.
+  - **GitHub Pages is opt-in**, as a separate job behind `vars.PLAN_ATLAS_PAGES == 'true'` with `pages: write`, `id-token: write` and `environment: github-pages`. On Free, Pro and Team plans the Pages site of a private repository is public, and the combined map carries every member's titles, quotes and evidence; the example and GETTING-STARTED say so, and that Pages must be set to deploy from GitHub Actions. On a public hub the artifact and the issue expose the same text.
   - Member repositories triggering the hub after merges (`repository_dispatch`) is documented as optional: it needs a token with write access to the hub, stored in every member.
 - Documented with the hub: a namespace or file rename takes three merges (the member's pull request reports V0.34 or V0.35, then the hub changes, then the next run is clean), which `fail-on: none` allows; do not "fix" that ERROR in the plan. Scheduled workflows in public repositories stop after 60 days without activity; the run-time line in the issue shows when the last run happened.
 - This is where two pull requests that each passed against the other's `main` but conflict after both merge become visible.
@@ -97,5 +98,5 @@ Decided 2026-11-04 (product owner, after a second-opinion review): the Action re
 - GraphQL fetch behind an injected function, no network.
 - `--self`: self entries read from the current directory and never fetched; `--self-repo` without case; positional files with a self option, an unknown `--self` and an empty `--self-repo` are exit 2; an unreadable self file is ERROR even with `--allow-missing`; V0.36 both ways; `--self-files` contents, and absent when the workspace was not read; remote workspace parsing, fetch, bad forms (exit 2) and `path` entries (V0.32).
 - `action/run.sh`, with a fake `gh` on `PATH` that returns canned JSON: one check per self file (no duplicate annotations); default `self` from `GITHUB_REPOSITORY`; a bad `self` value; `plans` that do not cover the self files; `pull_request_target` rejected; `PA_NO_SECRETS` passes `--allow-missing` and falls back to `plans`; the workspace-changed line.
-- `health`: `healthReport()` grouping, order and truncation by whole sections; the marker; `--no-status`; exit 0 with ERROR findings.
+- `health`: `healthReport()` grouping, order and truncation at whole lines; the marker; `--no-status`; exit 0 with ERROR findings; entry findings under their repository.
 - End to end: a local three-repository demo (`sdk`, `api`, `web`) with `path` entries.
