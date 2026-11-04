@@ -17,10 +17,21 @@ function print(findings: Finding[], lang: Lang, log = console.log) {
   log(t(lang, 'findingCounts', n('ERROR'), n('WARN'), n('INFO')));
 }
 
-const workspaceOptions = { workspace: { type: 'string' }, 'head-ref': { type: 'string' }, 'allow-missing': { type: 'boolean' } } as const;
+const workspaceOptions = {
+  workspace: { type: 'string' }, 'head-ref': { type: 'string' }, 'allow-missing': { type: 'boolean' },
+  self: { type: 'string', multiple: true }, 'self-repo': { type: 'string' }, 'self-files': { type: 'string' },
+} as const;
 
-function printRefs(entries: WorkspacePlan[], lang: Lang, log = console.log) {
-  for (const e of entries) if (e.ref && e.sha) log(t(lang, 'workspaceReadAt', e.entry!.namespace, e.entry!.github!, e.ref, e.sha));
+function printRefs(loaded: { source?: { github: string; path: string; ref: string; sha: string }; entries: WorkspacePlan[] }, lang: Lang, log = console.log) {
+  if (loaded.source) log(t(lang, 'workspaceSourceReadAt', loaded.source.github, loaded.source.path, loaded.source.ref, loaded.source.sha));
+  for (const e of loaded.entries) if (e.ref && e.sha && e.entry?.github) log(t(lang, 'workspaceReadAt', e.entry.namespace, e.entry.github, e.ref, e.sha));
+}
+
+/** One relative path per self file. Absent unless the workspace was read and is valid; empty when none were. */
+function writeSelfFiles(loaded: { workspace: unknown; entries: WorkspacePlan[] }, file: string | undefined) {
+  if (file === undefined || loaded.workspace === null) return;
+  const lines = loaded.entries.flatMap((e) => e.self && e.file ? [relative(process.cwd(), e.file).split(sep).join('/')] : []);
+  writeFileSync(file, lines.length === 0 ? '' : `${lines.join('\n')}\n`);
 }
 
 function printStatus(suggestions: Suggestion[], lang: Lang) {
@@ -56,16 +67,22 @@ function main(argv: string[]): number {
     const lang = language(values.lang);
     // status --git/--github prints suggestions, not findings (§S): an input it cannot read stops it (exit 2)
     if (!values.workspace) confineFiles(positionals, process.env.PLAN_ATLAS_CONFINE, lang);
+    const selfFlags = values['head-ref'] !== undefined || values['allow-missing'] !== undefined || values.self !== undefined || values['self-repo'] !== undefined || values['self-files'] !== undefined;
     if ((values.workspace && (values.git !== undefined || values.github !== undefined || values.ref !== undefined)) ||
-        (!values.workspace && (values['head-ref'] !== undefined || values['allow-missing']))) {
+        (!values.workspace && selfFlags)) {
       console.error(t(lang, 'workspaceArgs'));
       return 2;
     }
+    if ((values.self !== undefined || values['self-repo'] !== undefined) && positionals.length) {
+      console.error(t(lang, 'selfArgs'));
+      return 2;
+    }
     if (values.workspace) {
-      const opts = { lang, headRef: values['head-ref'], allowMissing: values['allow-missing'], confine: process.env.PLAN_ATLAS_CONFINE };
+      const opts = { lang, headRef: values['head-ref'], allowMissing: values['allow-missing'], confine: process.env.PLAN_ATLAS_CONFINE, self: values.self, selfRepo: values['self-repo'] };
       const loaded = loadWorkspace(values.workspace, positionals, opts);
+      writeSelfFiles(loaded, values['self-files']);
       const log = values.json ? console.error : console.log;
-      printRefs(loaded.entries, lang, log);
+      printRefs(loaded, lang, log);
       print(loaded.findings, lang, log);
       const suggestions = loaded.model ? suggestWorkspace(loaded.entries, opts) : [];
       if (values.json) console.log(JSON.stringify(suggestions, null, 2));
@@ -93,12 +110,21 @@ function main(argv: string[]): number {
   const lang = language(values.lang);
   const confine = process.env.PLAN_ATLAS_CONFINE;
   // --annotations <file>: GitHub annotations of ERROR and WARN findings, for the Action to print
-  const annotate = (fs: Finding[], files: Map<string, string>, fallback: string) => {
+  const annotate = (fs: Finding[], files: Map<string, string>, fallback?: string) => {
     if (values.annotations === undefined) return;
-    writeFileSync(values.annotations, fs.flatMap((x) => annotation(x, findingFile(x, files, fallback)) ?? []).map((l) => `${l}\n`).join(''));
+    writeFileSync(values.annotations, fs.flatMap((x) => {
+      const file = findingFile(x, files, fallback);
+      const line = file === undefined ? null : annotation(x, file);
+      return line === null ? [] : [line];
+    }).map((l) => `${l}\n`).join(''));
   };
-  if ((!values.workspace && (values['head-ref'] !== undefined || values['allow-missing'])) || (cmd === 'coupling' && values.workspace)) {
+  const selfFlags = values['head-ref'] !== undefined || values['allow-missing'] !== undefined || values.self !== undefined || values['self-repo'] !== undefined || values['self-files'] !== undefined;
+  if ((!values.workspace && selfFlags) || (cmd === 'coupling' && values.workspace)) {
     console.error(t(lang, 'workspaceArgs'));
+    return 2;
+  }
+  if ((values.self !== undefined || values['self-repo'] !== undefined) && positionals.length) {
+    console.error(t(lang, 'selfArgs'));
     return 2;
   }
   if (cmd === 'coupling') {
@@ -141,11 +167,13 @@ function main(argv: string[]): number {
   const workspaceLoaded = values.workspace
     ? loadWorkspace(values.workspace, positionals, {
       lang, headRef: values['head-ref'], allowMissing: values['allow-missing'], confine,
+      self: values.self, selfRepo: values['self-repo'],
       claimed: against ? against.value as Derived : undefined,
     })
     : undefined;
+  if (workspaceLoaded) writeSelfFiles(workspaceLoaded, values['self-files']);
   const loaded = workspaceLoaded ?? loadFiles(positionals, values.against, lang, confine);
-  if (workspaceLoaded) printRefs(workspaceLoaded.entries, lang);
+  if (workspaceLoaded) printRefs(workspaceLoaded, lang);
   const { model, findings } = loaded;
   if (cmd === 'build' && model) {
     mkdirSync(values.out!, { recursive: true });
@@ -157,7 +185,9 @@ function main(argv: string[]): number {
   }
   const files = loaded.files ?? new Map((workspaceLoaded?.entries ?? []).flatMap((e) =>
     e.file ? [[e.entry?.namespace ?? namespaceOf(e.plan), relative(process.cwd(), e.file).split(sep).join('/')] as [string, string]] : []));
-  annotate(findings, files, positionals[0] ?? values.workspace!);
+  // A remote workspace has no file in this checkout, so a finding with no file is not annotated.
+  const fallback = positionals[0] ?? (values.workspace?.startsWith('github:') ? undefined : values.workspace);
+  annotate(findings, files, fallback);
   print(findings, lang);
   return findings.some((f) => f.level === 'ERROR') ? 1 : 0;
 }

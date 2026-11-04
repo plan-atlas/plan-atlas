@@ -62,11 +62,11 @@ node src/cli.ts status --github owner/repo plans/plan.json
     plans: plans/*.json
 ```
 
-It runs `check`, `coupling` on pull requests and `status --git`, and writes the report to the job summary. Each ERROR and WARN also appears as an annotation on the plan file it concerns. By default the Action only reports (`fail-on: none`); set `fail-on: error` to block a pull request on an ERROR. A run that could not run at all (a bad glob, a file outside the workspace) always fails. Inputs and a full workflow: [docs/GETTING-STARTED.md](docs/GETTING-STARTED.md#7-keep-it-current).
+It runs `check`, `coupling` on pull requests and `status --git`, and writes the report to the job summary. Each ERROR and WARN also appears as an annotation on the plan file it concerns. By default the Action only reports (`fail-on: none`); set `fail-on: error` to block a pull request on an ERROR. A run that could not run at all (a bad glob, a file outside the workspace) always fails. The action also accepts `workspace` and `self`. Inputs and a full workflow: [docs/GETTING-STARTED.md](docs/GETTING-STARTED.md#7-keep-it-current).
 
 ## Several repositories
 
-Keep one `plan-atlas.workspace.json` with a namespace and an explicit plan file for each repository, using `github: "owner/repo"` or `path: "../repo"` (relative to the workspace file). Run `check`, `build` or `status` with `--workspace plan-atlas.workspace.json`; positional plan files replace matching entries before fetching. `--head-ref feature/name` prefers that branch wherever it exists. GitHub reads print the selected ref and commit SHA. See the [workspace example and commands](docs/GETTING-STARTED.md#6-several-repositories).
+Keep one `plan-atlas.workspace.json` with a namespace and an explicit plan file for each repository, using `github: "owner/repo"` or `path: "../repo"` (relative to the workspace file). Run `check`, `build` or `status` with `--workspace plan-atlas.workspace.json`; positional plan files replace matching entries before fetching. `--self <ns>` and `--self-repo owner/repo` read those entries from the current directory. `--workspace` also accepts `github:<owner>/<repo>:<path>[@<ref>]`. `--head-ref feature/name` prefers that branch wherever it exists. GitHub reads print the selected ref and commit SHA. See the [workspace example and commands](docs/GETTING-STARTED.md#6-several-repositories).
 
 ## The plan file
 
@@ -106,7 +106,7 @@ Findings are possible contradictions, for a person to look at. Levels:
 
 | Rule | Catches |
 |---|---|
-| V0 | Malformed plans, workspaces, fields or links, duplicate ids/namespaces/files, namespace mismatches, input files or workspace entries that cannot be read, unknown parents, areas or dependencies |
+| V0 | Malformed plans, workspaces, fields or links, duplicate ids/namespaces/files, namespace mismatches, input files or workspace entries that cannot be read, self entries that do not match the repository (WARN), unknown parents, areas or dependencies |
 | V1 / V2 / V4 | A committed `atlas.json` that no longer matches the items |
 | V3 | An item without a source, or citing a plan its group does not own |
 | V5 | A page with more nodes than `rules.maxPageNodes` (the smallest any loaded file sets; default 15) |

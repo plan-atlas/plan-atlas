@@ -62,11 +62,11 @@ node src/cli.ts status --github owner/repo plans/plan.json
     plans: plans/*.json
 ```
 
-它會執行 `check`、在 PR 上執行 `coupling`，以及 `status --git`，並把報告寫進 job summary。每個 ERROR 與 WARN 也會以註記（annotation）標在它所屬的計畫檔上。Action 預設只回報（`fail-on: none`）；要在有 ERROR 時擋下 PR，設定 `fail-on: error`。工具根本無法執行時（glob 寫錯、檔案在工作目錄之外）一律失敗。輸入參數與完整的 workflow 見 [docs/GETTING-STARTED.md](docs/GETTING-STARTED.md#7-keep-it-current)。
+它會執行 `check`、在 PR 上執行 `coupling`，以及 `status --git`，並把報告寫進 job summary。每個 ERROR 與 WARN 也會以註記（annotation）標在它所屬的計畫檔上。Action 預設只回報（`fail-on: none`）；要在有 ERROR 時擋下 PR，設定 `fail-on: error`。工具根本無法執行時（glob 寫錯、檔案在工作目錄之外）一律失敗。這個 Action 也接受 `workspace` 與 `self`。輸入參數與完整的 workflow 見 [docs/GETTING-STARTED.md](docs/GETTING-STARTED.md#7-keep-it-current)。
 
 ## 多個儲存庫
 
-用一份 `plan-atlas.workspace.json` 列出各計畫的 namespace 與明確的檔案路徑，並指定 `github: "owner/repo"` 或 `path: "../repo"`（相對於工作區檔案）。執行 `check`、`build` 或 `status` 時加上 `--workspace plan-atlas.workspace.json`；位置參數中的計畫檔會在擷取前取代對應項目。`--head-ref feature/name` 會在各儲存庫優先使用存在的同名分支。讀取 GitHub 計畫時會顯示選用的參照與 commit SHA。詳見[工作區範例與命令](docs/GETTING-STARTED.md#6-several-repositories)。
+用一份 `plan-atlas.workspace.json` 列出各計畫的 namespace 與明確的檔案路徑，並指定 `github: "owner/repo"` 或 `path: "../repo"`（相對於工作區檔案）。執行 `check`、`build` 或 `status` 時加上 `--workspace plan-atlas.workspace.json`；位置參數中的計畫檔會在擷取前取代對應項目。`--self <ns>` 與 `--self-repo owner/repo` 會從目前目錄讀取這些項目。`--workspace` 也接受 `github:<owner>/<repo>:<path>[@<ref>]`。`--head-ref feature/name` 會在各儲存庫優先使用存在的同名分支。讀取 GitHub 計畫時會顯示選用的參照與 commit SHA。詳見[工作區範例與命令](docs/GETTING-STARTED.md#6-several-repositories)。
 
 ## 計畫檔案
 
@@ -106,7 +106,7 @@ node src/cli.ts status --github owner/repo plans/plan.json
 
 | 規則 | 抓到 |
 |---|---|
-| V0 | 格式錯誤的計畫、工作區、欄位或連結、重複的 id／namespace／檔案、namespace 不符、無法讀取的輸入檔或工作區項目、未知的 parent、area 或依賴 |
+| V0 | 格式錯誤的計畫、工作區、欄位或連結、重複的 id／namespace／檔案、namespace 不符、無法讀取的輸入檔或工作區項目、與這個儲存庫不符的 self 項目（WARN）、未知的 parent、area 或依賴 |
 | V1 / V2 / V4 | 已提交的 `atlas.json` 不再與項目相符 |
 | V3 | 項目沒有出處（source），或引用了不屬於其群組的計畫文件 |
 | V5 | 一頁的節點數超過 `rules.maxPageNodes`（取所有載入檔案中最小的設定；預設 15） |

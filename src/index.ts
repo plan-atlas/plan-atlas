@@ -25,7 +25,7 @@ export { viewModel } from './render/viewmodel.ts';
 export type * from './types.ts';
 export { validate } from './validate.ts';
 export { parseWorkspace, readWorkspace, suggestWorkspace, workspaceQuery } from './workspace.ts';
-export type { Workspace, WorkspaceEntry, WorkspaceOptions, WorkspacePlan } from './workspace.ts';
+export type { Workspace, WorkspaceEntry, WorkspaceOptions, WorkspacePlan, WorkspaceRead } from './workspace.ts';
 
 export interface Loaded {
   model: Model | null;

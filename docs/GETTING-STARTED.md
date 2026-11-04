@@ -210,7 +210,13 @@ node plan-atlas/src/cli.ts check --workspace hub/plan-atlas.workspace.json --hea
 
 Unreadable entries are ERROR by default. `--allow-missing` reports them as WARN for local use; invalid JSON, invalid plan shapes and namespace mismatches remain ERROR. When `PLAN_ATLAS_CONFINE` is set (the GitHub Action sets it to the workspace), `path` entries must be regular files below that directory, like positional files; an entry outside it is ERROR even with `--allow-missing`. A dependency or claim naming a namespace absent from the workspace is ERROR V8 unless that exact id appears in the referring plan's `externalRefs`. Without a workspace, unloaded namespaces remain INFO. A claim whose `from` or `to` is missing in a loaded namespace is ERROR V9; disagreements between existing nodes remain WARN V9.
 
-These are CLI commands. Workspace support in the GitHub Action is a later step.
+`--self <ns>` (repeatable) and `--self-repo <owner/repo>` name the entries of the repository you are in. The self set is their union. `--self-repo` selects every entry whose `github` equals it, compared without case. Each self entry is read from its `file` in the current directory, whatever its `github`, `path` or `ref`, and is never fetched. Positional plan files cannot be combined with either flag. An unreadable self file stays ERROR with `--allow-missing`. `--self-files <file>` writes the self files that were read, one path relative to the current directory per line, and only when the workspace was read and is valid.
+
+`--workspace` also accepts `github:<owner>/<repo>:<path>[@<ref>]`. That form fetches the workspace file through `gh`. The ref is the text after the last `@`; without one, the default branch is used. The command prints the ref and commit SHA. A `path` entry in a workspace read from GitHub is an error unless it is a self entry.
+
+When `GITHUB_REPOSITORY` is set, a self entry whose `github` is another repository, or an entry of this repository left out of the self set, is WARN (V0.36). The run continues.
+
+The GitHub Action takes the same workspace. See [§7](#7-keep-it-current).
 
 ## 7. Keep it current
 
@@ -259,13 +265,46 @@ jobs:
 
 | Input | Default | Meaning |
 |---|---|---|
-| `plans` | required | Plan files, as globs separated by spaces or newlines (`plans: |`). A glob that matches no file fails the step. |
+| `plans` | required without `workspace` | Plan files, as globs separated by spaces or newlines (`plans: \|`). A glob that matches no file fails the step. With `workspace`, this is optional. When it is set, every self file must be among the matches. When no workspace was loaded (unreadable or invalid), the plans files are checked on their own, in addition to the workspace finding. |
+| `workspace` | empty | A workspace file in this repository, or `github:<owner>/<repo>:<path>[@<ref>]` for a hub's canonical file. One `check --workspace` replaces the per-file check. |
+| `self` | empty | Namespaces this repository owns, separated by spaces. Empty selects every entry whose `github` equals this repository. |
 | `against` | empty | A committed `atlas.json` for `check --against`. |
 | `coupling` | `true` | On pull requests, run `coupling` for each plan file that exists on the base branch. A plan file new in the pull request has no earlier version and is skipped. |
 | `status` | `git` | `git` runs `status --git .`, `github` runs `status --github` for this repository, `none` skips. Suggestions never fail the job. |
-| `token` | `github.token` | Token for `status: github`. Only read-only queries are made. If the workflow sets `permissions`, give it `issues: read` and `pull-requests: read`. |
+| `token` | `github.token` | Used to fetch a `github:` workspace and `github` entries, and for `status: github`. Only read-only queries are made. If the workflow sets `permissions`, give it `issues: read` and `pull-requests: read`. |
 | `lang` | `en` | Output language: `en` or `zh-TW`, passed as `PLAN_ATLAS_LANG`. |
 | `fail-on` | `none` | `none` only reports. `error` fails the step on an ERROR from `check` or `coupling`; `warn` also on a WARN. A run that could not run at all (a bad glob, a file outside the workspace, exit code 2) counts as one error and fails the step whatever `fail-on` says. |
+
+**A member repository.** Point `workspace` at the hub. Leave `self` empty when this repository's `github` in the hub file is the repository itself; set `self` when it owns a namespace under some other `github`. `plans` stays optional. When it is set and no workspace was loaded (unreadable or invalid), the plans files are checked on their own, in addition to the workspace finding.
+
+```yaml
+name: plan-atlas
+on:
+  pull_request:
+  push:
+    branches: [main]
+jobs:
+  plans:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+      # workspace and self need v0.2.0 or later
+      - uses: plan-atlas/plan-atlas@v0.2.0
+        with:
+          workspace: github:org/hub:plan-atlas.workspace.json
+          plans: plans/*.json
+          # A fine-grained token with contents: read on the listed repositories is needed when any of them is private.
+          # Without the secret (forks, Dependabot) github.token still reads public repositories.
+          token: ${{ secrets.PLAN_ATLAS_TOKEN || github.token }}
+```
+
+The `token` input (default `github.token`) needs `contents: read` on the listed repositories only. The job summary shows findings from those repositories to whoever can read this repository's Actions logs.
+
+A pull request from a fork, and a run by Dependabot, have no token that can read the other repositories. The action then passes `--allow-missing`, so an unreadable entry is a warning. `pull_request_target` is rejected when `workspace` is set: that event runs with this repository's secrets on a pull request's files, so a fork could point the workspace at any repository the token can read.
+
+On a pull request, when the workspace file in this repository is one of the changed files, the summary says the entries were read from that version.
 
 To also catch hand edits of the generated map, commit `atlas/atlas.json` from `build` and add `against: atlas/atlas.json`.
 

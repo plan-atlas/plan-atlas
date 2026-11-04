@@ -90,6 +90,7 @@ const MESSAGES: [string, RegExp][] = [
   ['overlapFields', /^rules\.overlaps\[\d+\] needs an id/],
   ['maxPageNodes', /^rules\.maxPageNodes must be an integer/],
   ['workspaceRead', /^Cannot read workspace entry/],
+  ['workspaceFetch', /^Cannot fetch workspace/],
   ['fileRead', /^Cannot read (?!workspace entry)/],
   ['fileJson', /^Invalid JSON in/],
   ['fileConfined', /must be a regular file, not a symlink/],
@@ -102,6 +103,9 @@ const MESSAGES: [string, RegExp][] = [
   ['workspaceRef', /\.ref must be a nonempty string$/],
   ['workspaceDuplicateFile', /lists the same repository file more than once/],
   ['workspaceNamespace', /^Workspace namespace .* does not match file namespace/],
+  ['selfOtherRepository', /^Self entry .+ is not this repository/],
+  ['selfLeftOut', /^Entry .+ is part of this repository .+ but is not in the self set/],
+  ['workspaceRemotePath', /uses path, which a workspace read from GitHub cannot resolve/],
 ];
 
 /** The message id of a finding, by its English text. */

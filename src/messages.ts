@@ -82,9 +82,18 @@ const messages = {
   fileJson: { en: (file: string, line: number, column: number) => `Invalid JSON in ${file}: line ${line}, column ${column}`, 'zh-TW': (file: string, line: number, column: number) => `${file} 的 JSON 語法錯誤：第 ${line} 行，第 ${column} 欄` },
   fileConfined: { en: (file: string, root: string) => `Input ${file} must be a regular file, not a symlink, inside ${root}`, 'zh-TW': (file: string, root: string) => `輸入 ${file} 必須是 ${root} 內的一般檔案，不能是符號連結` },
   workspaceRead: { en: (entry: string, reason: string) => `Cannot read workspace entry ${entry}: ${reason}`, 'zh-TW': (entry: string, reason: string) => `無法讀取工作區項目 ${entry}：${reason}` },
+  workspaceFetch: { en: (spec: string, reason: string) => `Cannot fetch workspace ${spec}: ${reason}`, 'zh-TW': (spec: string, reason: string) => `無法取得工作區 ${spec}：${reason}` },
   workspaceBlob: { en: (errors: string) => `GitHub did not return the plan blob, ref and commit SHA${errors ? `: ${errors}` : ''}`, 'zh-TW': (errors: string) => `GitHub 未回傳計畫檔內容、參照與 commit SHA${errors ? `：${errors}` : ''}` },
   workspaceReadAt: { en: (ns: string, repo: string, ref: string, sha: string) => `Read ${ns} from ${repo} at ${ref} (${sha})`, 'zh-TW': (ns: string, repo: string, ref: string, sha: string) => `已從 ${repo} 的 ${ref}（${sha}）讀取 ${ns}` },
-  workspaceArgs: { en: '--head-ref and --allow-missing need --workspace; workspace status cannot use --git, --github or --ref', 'zh-TW': '--head-ref 與 --allow-missing 需要 --workspace；工作區 status 不能使用 --git、--github 或 --ref' },
+  workspaceSourceReadAt: { en: (repo: string, path: string, ref: string, sha: string) => `Read workspace from ${repo}:${path} at ${ref} (${sha})`, 'zh-TW': (repo: string, path: string, ref: string, sha: string) => `已從 ${repo}:${path} 的 ${ref}（${sha}）讀取工作區` },
+  workspaceRemoteForm: { en: (value: string) => `--workspace ${value} must look like github:<owner>/<repo>:<path>[@<ref>], with a relative path that does not contain .. and a ref that does not start with -`, 'zh-TW': (value: string) => `--workspace ${value} 必須形如 github:<owner>/<repo>:<path>[@<ref>]，路徑須為相對路徑且不能包含 ..，ref 不能以 - 開頭` },
+  workspaceRemotePath: { en: (ns: string) => `Workspace entry ${ns} uses path, which a workspace read from GitHub cannot resolve`, 'zh-TW': (ns: string) => `工作區項目 ${ns} 使用 path，但從 GitHub 讀取的工作區無法解析 path` },
+  selfUnknown: { en: (name: string) => `--self ${name} matches no workspace entry`, 'zh-TW': (name: string) => `--self ${name} 沒有對應的工作區項目` },
+  selfRepoNone: { en: (repo: string) => `--self-repo ${repo} matches no workspace entry`, 'zh-TW': (repo: string) => `--self-repo ${repo} 沒有對應的工作區項目` },
+  selfOtherRepository: { en: (ns: string, github: string, repository: string) => `Self entry ${ns} (${github}) is not this repository (${repository})`, 'zh-TW': (ns: string, github: string, repository: string) => `self 項目 ${ns}（${github}）不是這個儲存庫（${repository}）` },
+  selfLeftOut: { en: (ns: string, github: string, repository: string) => `Entry ${ns} (${github}) is part of this repository (${repository}) but is not in the self set`, 'zh-TW': (ns: string, github: string, repository: string) => `項目 ${ns}（${github}）屬於這個儲存庫（${repository}），但不在 self 集合中` },
+  selfArgs: { en: '--self and --self-repo cannot be used with positional plan files', 'zh-TW': '--self 與 --self-repo 不能和位置參數的計畫檔一起使用' },
+  workspaceArgs: { en: '--head-ref, --allow-missing, --self, --self-repo and --self-files need --workspace; workspace status cannot use --git, --github or --ref', 'zh-TW': '--head-ref、--allow-missing、--self、--self-repo 與 --self-files 需要 --workspace；工作區 status 不能使用 --git、--github 或 --ref' },
   removedDep: { en: "Removed cross-group dependency", 'zh-TW': '刪除了跨群組依賴' },
   addedDep: { en: "Added cross-group dependency", 'zh-TW': '新增了跨群組依賴' },
   retypedDep: { en: (before: string, after: string) => `Dependency type changed from ${before} to ${after}`, 'zh-TW': (before: string, after: string) => `依賴類型從 ${before} 改成 ${after}` },
@@ -140,6 +149,7 @@ Usage:
   plan-atlas status --git <repo> <plan.json> [--ref <ref>] [--json]
   plan-atlas status --github <owner/repo> <plan.json> [--json]
   plan-atlas check|build|status --workspace <file> [plan.json...] [--head-ref <branch>] [--allow-missing]
+                     [--self <ns>] [--self-repo <owner/repo>] [--self-files <file>]
   plan-atlas coupling --before old.json --after new.json --changed <file-list|->
 
   check     Validate plans (several files are merged; refs use <namespace>:<id>).
@@ -159,11 +169,18 @@ Usage:
 
   --lang en|zh-TW  Output language (default: PLAN_ATLAS_LANG, else en).
 
-  --workspace <file>  Load a plan-atlas.workspace.json; positional plans replace their entries.
+  --workspace <file>  Load a plan-atlas.workspace.json. github:<owner>/<repo>:<path>[@<ref>] fetches
+                     that file through gh. Positional plans replace their entries.
                      status uses git for path entries and GitHub for github entries, in one report.
+  --self <ns>         Read that entry from its file in the current directory. Repeatable.
+                     With --self or --self-repo, positional plan files are not allowed.
+  --self-repo <owner/repo>  Read every entry whose github equals this, compared without case.
+  --self-files <file> Write each self file that was read, one path relative to the current
+                     directory per line. Written only when the workspace was read and is valid.
   --head-ref <branch> Prefer that branch in each GitHub repository when it exists, else ref/default.
                      Prints each fetched plan's selected ref and commit SHA.
   --allow-missing     Report unreadable workspace entries as WARN instead of ERROR.
+                     An unreadable self file stays an ERROR.
   --annotations <file> check, build and coupling also write a GitHub annotation for each
                      ERROR and WARN finding, on its plan file.
 
@@ -175,6 +192,7 @@ Exit code 1 when any ERROR is found; 2 for bad arguments or git and gh failures.
   plan-atlas status --git <repo> <plan.json> [--ref <ref>] [--json]
   plan-atlas status --github <owner/repo> <plan.json> [--json]
   plan-atlas check|build|status --workspace <file> [plan.json...] [--head-ref <branch>] [--allow-missing]
+                     [--self <ns>] [--self-repo <owner/repo>] [--self-files <file>]
   plan-atlas coupling --before old.json --after new.json --changed <file-list|->
 
   check     驗證計畫（多個檔案會合併；跨檔參照寫成 <namespace>:<id>）。
@@ -193,11 +211,18 @@ Exit code 1 when any ERROR is found; 2 for bad arguments or git and gh failures.
 
   --lang en|zh-TW  輸出語言（預設為 PLAN_ATLAS_LANG，否則為 en）。
 
-  --workspace <file>  載入 plan-atlas.workspace.json；位置參數的計畫檔會取代對應項目。
+  --workspace <file>  載入 plan-atlas.workspace.json。github:<owner>/<repo>:<path>[@<ref>] 會透過 gh
+                     取得該檔。位置參數的計畫檔會取代對應項目。
                      status 對 path 項目查 git、對 github 項目查 GitHub，合併成一份報告。
+  --self <ns>         從目前目錄的 file 讀取該項目。可重複指定。
+                     使用 --self 或 --self-repo 時，不能再給位置參數的計畫檔。
+  --self-repo <owner/repo>  讀取 github 與此相同的每個項目，比較時不分大小寫。
+  --self-files <file> 寫出已讀取的 self 檔案，每行一個相對於目前目錄的路徑。
+                     只有在工作區已讀取且有效時才寫出。
   --head-ref <branch> 各 GitHub 儲存庫若有同名分支就優先使用，否則使用 ref 或預設分支。
                      顯示每份遠端計畫使用的參照與 commit SHA。
   --allow-missing     將無法讀取的工作區項目從 ERROR 改為 WARN。
+                     無法讀取的 self 檔案仍是 ERROR。
   --annotations <file> check、build 與 coupling 另外為每個 ERROR 與 WARN 寫出
                      GitHub 註記，標在它所屬的計畫檔上。
 

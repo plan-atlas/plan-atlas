@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { execFileSync, spawnSync } from 'node:child_process';
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -37,6 +37,13 @@ const runCliLang = (lang: string, ...args: string[]) => {
   return result;
 };
 const runCli = (...args: string[]) => runCliLang('en', ...args);
+const runCliIn = (cwd: string, ...args: string[]) => {
+  const result = spawnSync(process.execPath, [cli, ...args], { cwd, encoding: 'utf8', env: { ...process.env, PLAN_ATLAS_LANG: 'en' } });
+  if (result.error) throw result.error;
+  return result;
+};
+const workspaceReply = (text: string, commit: unknown = { oid: 'ws-sha' }, branch = 'main') =>
+  ({ data: { repository: { defaultBranchRef: { name: branch }, blob: { text }, commit } } });
 
 test('workspace path entries resolve from the workspace directory and normalize Windows separators', (t) => {
   const { dir, save, workspace } = fixture(t);
@@ -239,9 +246,13 @@ test('CLI help and argument validation include workspace options in both languag
     assert.match(r.stdout, /--workspace/);
     assert.match(r.stdout, /--head-ref/);
     assert.match(r.stdout, /--allow-missing/);
+    assert.match(r.stdout, /--self <ns>/);
+    assert.match(r.stdout, /--self-repo/);
+    assert.match(r.stdout, /--self-files/);
     if (lang === 'zh-TW') assert.match(r.stdout, /工作區/);
   }
   for (const args of [['check', '--head-ref', 'x'], ['build', '--allow-missing'],
+    ['check', '--self', 'sdk'], ['status', '--self-repo', 'org/sdk'], ['build', '--self-files', 'out.txt'],
     ['status', '--workspace', 'x', '--git', '.'], ['status', '--workspace', 'x', '--github', 'a/b'],
     ['status', '--workspace', 'x', '--ref', 'main'], ['coupling', '--workspace', 'x']]) {
     const r = runCli(...args);
@@ -330,4 +341,227 @@ test('three git repositories: build/status, a deleted dependency (V8), and a rou
   const claim = runCli('check', '--workspace', file);
   assert.equal(claim.status, 0, claim.stdout + claim.stderr);
   assert.match(claim.stdout, /WARN\s+V9\s+Plans disagree: api:A1/);
+});
+
+test('self entries are read from cwd and never fetched; selfRepo matches github without case', (t) => {
+  const { dir, save, workspace } = fixture(t);
+  save('plans/sdk.json', plan('sdk'));
+  save('plans/web.json', plan('web'));
+  const copied = save('copied.json', plan('sdk'));
+  const file = workspace([
+    { namespace: 'sdk', github: 'Org/SDK', file: 'plans/sdk.json' },
+    { namespace: 'web', path: '../elsewhere', file: 'plans/web.json' },
+    remote('api'),
+  ]);
+  const queries: string[] = [];
+  const loaded = readWorkspace(file, [copied], {
+    cwd: dir, self: ['web'], selfRepo: 'org/sdk', repository: 'org/sdk',
+    run: (q) => { queries.push(q); return { data: { p0: reply(plan('api')) } }; },
+  });
+  assert.deepEqual(loaded.findings, []);
+  assert.equal(queries.length, 1);
+  assert.match(queries[0], /name: "api"/);
+  assert.doesNotMatch(queries[0], /plans\/sdk\.json|plans\/web\.json/);
+  const sdk = loaded.entries.find((e) => e.entry?.namespace === 'sdk')!;
+  const web = loaded.entries.find((e) => e.entry?.namespace === 'web')!;
+  assert.equal(sdk.self, true);
+  assert.equal(sdk.file, slash(join(dir, 'plans/sdk.json')));
+  assert.equal(web.self, true);
+  assert.equal(web.file, slash(join(dir, 'plans/web.json')));
+  assert.equal(loaded.entries.some((e) => e.file === slash(copied)), false);
+});
+
+test('an unknown self name or a selfRepo that selects nothing throws; a missing workspace does not', (t) => {
+  const { workspace } = fixture(t);
+  const file = workspace([remote('sdk')]);
+  assert.throws(() => readWorkspace(file, [], { self: ['missing'], run: noFetch }), /--self missing matches no workspace entry/);
+  assert.throws(() => readWorkspace(file, [], { selfRepo: '', run: noFetch }), /--self-repo\s+matches no workspace entry/);
+  assert.throws(() => readWorkspace(file, [], { selfRepo: 'org/none', run: noFetch }), /org\/none matches no workspace entry/);
+  const missing = readWorkspace(`${file}.missing`, [], { self: ['sdk'], run: noFetch });
+  assert.equal(missing.workspace, null);
+  assert.equal(missing.findings[0].level, 'ERROR');
+});
+
+test('an unreadable self file is ERROR even with allow-missing', (t) => {
+  const { dir, workspace } = fixture(t);
+  const file = workspace([{ namespace: 'sdk', github: 'org/sdk', file: 'plans/sdk.json' }]);
+  const loaded = readWorkspace(file, [], { cwd: dir, self: ['sdk'], allowMissing: true, repository: 'org/sdk', run: noFetch });
+  assert.deepEqual(loaded.findings.map((f) => f.level), ['ERROR']);
+  assert.match(loaded.findings[0].message, /Cannot read workspace entry/);
+});
+
+test('V0.36 warns both ways, skips path entries, and is quiet without a repository', (t) => {
+  const { dir, save, workspace } = fixture(t);
+  save('plans/sdk.json', plan('sdk'));
+  save('plans/api.json', plan('api'));
+  save('plans/web.json', plan('web'));
+  const file = workspace([
+    remote('sdk'), remote('api'),
+    { namespace: 'web', path: '../elsewhere', file: 'plans/web.json' },
+  ]);
+  const saved = process.env.GITHUB_REPOSITORY;
+  delete process.env.GITHUB_REPOSITORY;
+  t.after(() => { if (saved === undefined) delete process.env.GITHUB_REPOSITORY; else process.env.GITHUB_REPOSITORY = saved; });
+  try {
+    const met = readWorkspace(file, [], { cwd: dir, self: ['api', 'web'], repository: 'org/sdk', run: (q) => {
+      assert.match(q, /name: "sdk"/);
+      assert.doesNotMatch(q, /plans\/api\.json|plans\/web\.json/);
+      return { data: { p0: reply(plan('sdk')) } };
+    } });
+    assert.deepEqual(met.findings.map((f) => f.message), [
+      'Entry sdk (org/sdk) is part of this repository (org/sdk) but is not in the self set',
+      'Self entry api (org/api) is not this repository (org/sdk)',
+    ]);
+    const quiet = readWorkspace(file, [], { cwd: dir, self: ['api', 'web'], run: () => ({ data: { p0: reply(plan('sdk')) } }) });
+    assert.equal(quiet.findings.filter((f) => f.level === 'WARN').length, 0);
+    const matched = readWorkspace(file, [], { cwd: dir, self: ['sdk', 'web'], repository: 'Org/SDK', run: (q) => {
+      assert.doesNotMatch(q, /plans\/sdk\.json|plans\/web\.json/);
+      return { data: { p0: reply(plan('api')) } };
+    } });
+    assert.deepEqual(matched.findings, []);
+  } finally {
+    if (saved === undefined) delete process.env.GITHUB_REPOSITORY;
+    else process.env.GITHUB_REPOSITORY = saved;
+  }
+});
+
+test('a github: workspace is fetched through run and records its source', () => {
+  const text = JSON.stringify({ version: 1, plans: [remote('api')] });
+  const queries: string[] = [];
+  const loaded = readWorkspace('github:org/sdk:plans/workspace.json@main', [], { run: (q) => {
+    queries.push(q);
+    if (q.includes('plans/workspace.json')) return workspaceReply(text);
+    return { data: { p0: reply(plan('api'), 'main', 'api-sha') } };
+  } });
+  assert.equal(queries.length, 2);
+  assert.match(queries[0], /owner: "org", name: "sdk"/);
+  assert.match(queries[0], /"main:plans\/workspace\.json"/);
+  assert.match(queries[1], /name: "api"/);
+  assert.deepEqual(loaded.source, { github: 'org/sdk', path: 'plans/workspace.json', ref: 'main', sha: 'ws-sha' });
+  assert.equal(loaded.entries[0].sha, 'api-sha');
+  assert.deepEqual(loaded.findings, []);
+  const tagged = readWorkspace('github:org/sdk:plans/workspace.json@v1.0.0', [], { run: (q) => {
+    assert.match(q, /"v1\.0\.0:plans\/workspace\.json"/);
+    return workspaceReply(JSON.stringify({ version: 1, plans: [] }), { target: { oid: 'tag-sha' } });
+  } });
+  assert.deepEqual(tagged.source, { github: 'org/sdk', path: 'plans/workspace.json', ref: 'v1.0.0', sha: 'tag-sha' });
+  const head = readWorkspace('github:org/sdk:plans/workspace.json', [], { run: (q) => {
+    assert.match(q, /"HEAD:plans\/workspace\.json"/);
+    return workspaceReply(JSON.stringify({ version: 1, plans: [] }), { oid: 'head-sha' }, 'develop');
+  } });
+  assert.equal(head.source?.ref, 'develop');
+  assert.equal(head.source?.sha, 'head-sha');
+});
+
+test('a malformed github: workspace throws', () => {
+  for (const value of [
+    'github:org/sdk', 'github:not a repo:plans/a.json', 'github:org/sdk:', 'github:org/sdk:../secret.json',
+    'github:org/sdk:plans/*.json', 'github:org/sdk:plans/a.json@', 'github:org/sdk:plans/a.json@-evil',
+    'github:org/sdk:/etc/passwd', 'github:',
+  ]) assert.throws(() => readWorkspace(value, [], { run: noFetch }), /must look like github:/, value);
+  assert.throws(() => readWorkspace('github:org/sdk', [], { run: noFetch }), /does not contain \.\./);
+});
+
+test('an unreadable github: workspace is ERROR, WARN with allow-missing; invalid JSON stays ERROR', () => {
+  const missing = readWorkspace('github:org/sdk:plans/workspace.json', [], { run: () => { throw new Error('offline'); } });
+  assert.equal(missing.findings[0].level, 'ERROR');
+  assert.equal(missing.findings[0].message, 'Cannot fetch workspace github:org/sdk:plans/workspace.json: offline');
+  assert.equal(missing.source, undefined);
+  const warn = readWorkspace('github:org/sdk:plans/workspace.json@main', [], {
+    allowMissing: true, run: () => ({ data: { repository: null }, errors: [{ message: 'not found' }] }),
+  });
+  assert.equal(warn.findings[0].level, 'WARN');
+  assert.match(warn.findings[0].message, /^Cannot fetch workspace github:org\/sdk:plans\/workspace\.json@main: /);
+  assert.match(warn.findings[0].message, /not found/);
+  const invalid = readWorkspace('github:org/sdk:plans/workspace.json', [], { allowMissing: true, run: () => workspaceReply('{') });
+  assert.equal(invalid.findings[0].level, 'ERROR');
+  assert.match(invalid.findings[0].message, /Invalid JSON/);
+  assert.equal(invalid.source?.sha, 'ws-sha');
+});
+
+test('a path entry in a github: workspace is workspaceRemotePath unless it is self', (t) => {
+  const { dir, save } = fixture(t);
+  save('plans/web.json', plan('web'));
+  const queries: string[] = [];
+  const blocked = readWorkspace('github:org/sdk:plans/workspace.json@main', [], { run: (q) => {
+    queries.push(q);
+    return workspaceReply(JSON.stringify({ version: 1, plans: [
+      { namespace: 'web', path: '../web', file: 'plans/web.json' }, remote('api'),
+    ] }));
+  } });
+  assert.deepEqual(queries.map((q) => /p0:/.test(q)), [false]);
+  assert.equal(blocked.entries.length, 0);
+  assert.equal(blocked.workspace, null);
+  assert.equal(blocked.findings[0].level, 'ERROR');
+  assert.match(blocked.findings[0].message, /Workspace entry web uses path/);
+  const selfPath = readWorkspace('github:org/sdk:plans/workspace.json@main', [], {
+    cwd: dir, self: ['web'], run: (q) => {
+      assert.doesNotMatch(q, /plans\/web\.json/);
+      return workspaceReply(JSON.stringify({ version: 1, plans: [
+        { namespace: 'web', path: '../elsewhere', file: 'plans/web.json' },
+      ] }));
+    },
+  });
+  assert.deepEqual(selfPath.findings, []);
+  assert.notEqual(selfPath.workspace, null);
+  assert.equal(selfPath.entries[0].self, true);
+  assert.equal(selfPath.entries[0].entry && 'path' in selfPath.entries[0].entry ? selfPath.entries[0].entry.path : '', slash(dir));
+  assert.equal(selfPath.entries[0].file, slash(join(dir, 'plans/web.json')));
+});
+
+test('CLI rejects --self with positional files, without --workspace, and for an unknown name or a bad github form', (t) => {
+  const { workspace } = fixture(t);
+  const file = workspace([remote('sdk')]);
+  const positional = runCli('check', '--workspace', file, '--self', 'sdk', 'plan.json');
+  assert.equal(positional.status, 2);
+  assert.match(positional.stderr, /cannot be used with positional plan files/);
+  const bare = runCli('check', '--self', 'sdk');
+  assert.equal(bare.status, 2);
+  assert.match(bare.stderr, /need --workspace/);
+  const unknown = runCli('check', '--workspace', file, '--self', 'missing');
+  assert.equal(unknown.status, 2);
+  assert.match(unknown.stderr, /matches no workspace entry/);
+  const emptyRepo = runCli('check', '--workspace', file, '--self-repo', '');
+  assert.equal(emptyRepo.status, 2);
+  assert.match(emptyRepo.stderr, /matches no workspace entry/);
+  const form = runCli('check', '--workspace', 'github:org/sdk:../secret.json');
+  assert.equal(form.status, 2);
+  assert.match(form.stderr, /must look like github:/);
+});
+
+test('--self-files lists the self file, and is absent when the workspace file is missing', (t) => {
+  const { dir, save, workspace } = fixture(t);
+  save('plans/sdk.json', plan('sdk'));
+  const file = workspace([{ namespace: 'sdk', github: 'org/sdk', file: 'plans/sdk.json' }]);
+  const out = join(dir, 'self.txt');
+  const ok = runCliIn(dir, 'check', '--workspace', file, '--self', 'sdk', '--self-files', out);
+  assert.equal(ok.status, 0, ok.stdout + ok.stderr);
+  assert.equal(readFileSync(out, 'utf8'), 'plans/sdk.json\n');
+  rmSync(out);
+  const missing = runCliIn(dir, 'check', '--workspace', join(dir, 'missing-workspace.json'), '--self', 'sdk', '--self-files', out);
+  assert.equal(missing.status, 1, missing.stderr);
+  assert.equal(existsSync(out), false);
+});
+
+test('status --self for a path entry uses git in the current repository', (t) => {
+  const { dir, save, workspace } = fixture(t);
+  save('plans/web.json', plan('web'));
+  const file = workspace([{ namespace: 'web', path: '../elsewhere', file: 'plans/web.json', ref: 'HEAD' }]);
+  const git = (...args: string[]) => execFileSync('git', ['-C', dir, ...args], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] });
+  git('init', '--quiet');
+  git('-c', 'user.name=test', '-c', 'user.email=test@example.com', '-c', 'commit.gpgsign=false',
+    'commit', '--allow-empty', '-m', 'X1 implementation');
+  const status = runCliIn(dir, 'status', '--workspace', file, '--self', 'web');
+  assert.equal(status.status, 0, status.stdout + status.stderr);
+  assert.match(status.stdout, /CHECK\s+web:X1/);
+  assert.match(status.stdout, /X1 implementation/);
+});
+
+test('a github: workspace ref is the text after the last @', () => {
+  let expression = '';
+  readWorkspace('github:org/hub:ws.json@a@b', [], { run: (q) => {
+    expression = q;
+    return workspaceReply(JSON.stringify({ version: 1, plans: [] }));
+  } });
+  assert.match(expression, /"b:ws\.json@a"/);
 });

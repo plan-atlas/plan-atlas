@@ -116,6 +116,22 @@ describe('§G10.1-2 workspace match', () => {
     assert.deepEqual(r.findings, []);
     assert.deepEqual([r.fetched, r.bound], [['sdk'], ['api']]);
   });
+  test('§G10.2 with a self set, self entries are read from the current directory and positional files are not matched', (t) => {
+    const d = mkdtempSync(join(tmpdir(), 'plan-atlas-g10-'));
+    t.after(() => rmSync(d, { recursive: true, force: true }));
+    mkdirSync(join(d, 'plans'));
+    const local = P([G('sdk', null), I('a', 'sdk')], { namespace: 'sdk' });
+    writeFileSync(join(d, 'plans/sdk.json'), JSON.stringify(P([G('sdk', null), I('b', 'sdk')], { namespace: 'sdk' })));
+    writeFileSync(join(d, 'ws.json'), JSON.stringify({ version: 1, plans: [
+      { namespace: 'sdk', github: 'org/sdk', file: 'plans/sdk.json' },
+    ] }));
+    writeFileSync(join(d, 'copy.json'), JSON.stringify(local));
+    const r = readWorkspace(join(d, 'ws.json'), [join(d, 'copy.json')], { cwd: d, self: ['sdk'], repository: 'org/sdk', run: () => { throw new Error('fetched'); } });
+    assert.deepEqual(r.findings, []);
+    assert.equal(r.entries.length, 1);
+    assert.equal(r.entries[0].self, true);
+    assert.equal(r.entries[0].plan.nodes[1].id, 'b');
+  });
 });
 
 describe('§G3 resolution, §G10.5 known and excused', () => {

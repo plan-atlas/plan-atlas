@@ -141,6 +141,31 @@ describe('§V0 shape', () => {
     save('sdk/plan.json', P([G('sdk', null), I('a', 'sdk')], { namespace: 'sdk' }));
     assert.deepEqual(readWorkspace(ws).findings, []);
   });
+  test('§V0.36 met: a self entry of another repository, and this repository left out; negated without a repository and when the self set matches', (t) => {
+    const { d, save } = dir(t);
+    const plan = (ns: string) => P([G(ns, null), I('a', ns)], { namespace: ns });
+    save('plans/api.json', plan('api'));
+    save('plans/sdk.json', plan('sdk'));
+    const ws = save('hub/ws.json', { version: 1, plans: [
+      { namespace: 'sdk', github: 'org/sdk', file: 'plans/sdk.json' },
+      { namespace: 'api', github: 'org/api', file: 'plans/api.json' },
+    ] });
+    const saved = process.env.GITHUB_REPOSITORY;
+    delete process.env.GITHUB_REPOSITORY;
+    t.after(() => { if (saved === undefined) delete process.env.GITHUB_REPOSITORY; else process.env.GITHUB_REPOSITORY = saved; });
+    try {
+      const run = (q: string) => {
+        const ns = /name: "(\w+)"/.exec(q)?.[1] ?? 'sdk';
+        return { data: { p0: { defaultBranchRef: { name: 'main' }, base: { text: JSON.stringify(plan(ns)) }, baseCommit: { oid: 'abc' } } } };
+      };
+      assert.deepEqual(ids(readWorkspace(ws, [], { cwd: d, self: ['api'], repository: 'org/sdk', run }).findings), ['WARN V0 selfLeftOut', 'WARN V0 selfOtherRepository']);
+      assert.deepEqual(readWorkspace(ws, [], { cwd: d, self: ['api'], run }).findings, []);
+      assert.deepEqual(readWorkspace(ws, [], { cwd: d, self: ['sdk'], repository: 'Org/SDK', run }).findings, []);
+    } finally {
+      if (saved === undefined) delete process.env.GITHUB_REPOSITORY;
+      else process.env.GITHUB_REPOSITORY = saved;
+    }
+  });
   test('§V0.1 met: an input file that cannot be read; negated: one that can', (t) => {
     const { d, save } = dir(t);
     assert.deepEqual(ids(loadFiles([join(d, 'missing.json')]).findings), ['ERROR V0 fileRead']);

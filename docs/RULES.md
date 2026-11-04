@@ -86,7 +86,7 @@ A declaration on n with target t and type σ binds these expanded edges of type 
 
 **§G10 Workspace.**
 1. A **workspace entry** is `{namespace, file, github | path, ref?}`, one per plan file. The entry's namespace must equal the plan file's `namespace` field; a file without that field does not match (docs/design/multi-repo.md).
-2. Positional plan files **replace** entries before fetching. The match is tried in this order: in CI, the file at the entry's path in the current repository; else the entry with the same namespace; else a lone positional plan for the current repository's only entry. Positional files that match no entry are loaded as further plans.
+2. Positional plan files **replace** entries before fetching. The match is tried in this order: in CI, the file at the entry's path in the current repository; else the entry with the same namespace; else a lone positional plan for the current repository's only entry. Positional files that match no entry are loaded as further plans. With a self set, the self entries are read from the current directory, positional files are not allowed and the matching order above is not used.
 3. **Confinement**: when `PLAN_ATLAS_CONFINE` is set, every input file and every `path` entry must be a regular file, not a symlink, inside that directory.
 4. An entry is **unreadable** when its file cannot be read or fetched. Invalid JSON, an invalid plan and a namespace mismatch are not "unreadable".
 5. With a workspace, a namespace is **known** when it is loaded or listed. An id is **excused** when it appears exactly in the referring plan's `externalRefs`.
@@ -146,12 +146,13 @@ A declaration on n with target t and type σ binds these expanded edges of type 
 | V0.29 | `rules.maxPageNodes` | not an integer ≥ 3 | `maxPageNodes` |
 | V0.30 | loaded files | two share a namespace | `duplicateNamespace` |
 | V0.31 | workspace file | not an object; `plans` not an array | `workspaceObject`, `workspacePlans` |
-| V0.32 | workspace entry | bad namespace or `file`; not exactly one of github/path; absolute `path`; empty `ref` | `workspaceFields`, `workspaceFile`, `workspaceLocation`, `workspacePath`, `workspaceRef` |
+| V0.32 | workspace entry | bad namespace or `file`; not exactly one of github/path; absolute `path`; empty `ref`; a `path` entry in a workspace read from GitHub, unless that entry is in the self set | `workspaceFields`, `workspaceFile`, `workspaceLocation`, `workspacePath`, `workspaceRef`, `workspaceRemotePath` |
 | V0.33 | workspace | a namespace or a repository file listed twice | `duplicateNamespace`, `workspaceDuplicateFile` |
 | V0.34 | workspace entry | namespace ≠ file's `namespace` field (§G10.1) | `workspaceNamespace` |
-| V0.35 | workspace entry | its file cannot be read or fetched (§G10.4) | `workspaceRead` |
+| V0.35 | workspace entry, or a workspace read from GitHub | its file cannot be read or fetched (§G10.4) | `workspaceRead`, `workspaceFetch` |
+| V0.36 | workspace entry | a self set is given and the repository (`GITHUB_REPOSITORY`) is set: a self entry whose `github` differs from that repository, or an entry whose `github` equals it and is not in the self set. Compared without case. Entries with `path` are skipped | `selfOtherRepository`, `selfLeftOut` |
 
-*Consequence.* ERROR per subject and row; V0.12 one per loop. With `--allow-missing`, V0.35 is WARN. Every other row stays ERROR on entries, notably V0.2 (invalid JSON), V0.3 (confinement), the plan-shape rows V0.4–0.29 and V0.34.
+*Consequence.* ERROR per subject and row; V0.12 one per loop. With `--allow-missing`, V0.35 is WARN. V0.36 is WARN. An unreadable self file stays ERROR with `--allow-missing`. Every other row stays ERROR on entries, notably V0.2 (invalid JSON), V0.3 (confinement), the plan-shape rows V0.4–0.29 and V0.34.
 
 *Competition.* V0 displaces every other rule for the run (§G8.5). Within V0, V0.1–4 and V0.6 stop parsing of that file, so its later rows are not evaluated.
 

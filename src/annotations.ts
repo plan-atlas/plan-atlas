@@ -19,7 +19,10 @@ export function annotation(f: Finding, file: string): string | null {
 
 /**
  * The file a finding concerns: the input that caused a V0 finding, else the plan file of the
- * namespace that holds the statement, else `fallback`.
+ * namespace that holds the statement, else `fallback`. No fallback means no annotation.
  */
-export const findingFile = (f: Finding, files: Map<string, string>, fallback: string): string =>
-  f.file ?? (f.namespace !== undefined ? files.get(f.namespace) : undefined) ?? fallback;
+export function findingFile(f: Finding, files: Map<string, string>, fallback: string): string;
+export function findingFile(f: Finding, files: Map<string, string>, fallback?: string): string | undefined;
+export function findingFile(f: Finding, files: Map<string, string>, fallback?: string): string | undefined {
+  return f.file ?? (f.namespace !== undefined ? files.get(f.namespace) : undefined) ?? fallback;
+}

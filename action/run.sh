@@ -3,7 +3,8 @@
 # Writes one report to the job summary and one annotation per ERROR and WARN on its plan file.
 # fail-on: none (default) only reports; error exits 1 on an ERROR from check or coupling; warn
 # also on a WARN. A command that could not run always fails the step. Status suggestions never
-# fail. Inputs arrive as PA_* variables.
+# fail. Inputs arrive as PA_* variables. With PA_WORKSPACE, one workspace check replaces the
+# per-file check; coupling and status then use the self files.
 set -euo pipefail
 
 cli="$GITHUB_ACTION_PATH/src/cli.ts"
@@ -28,29 +29,65 @@ die() {
 case "$PA_FAIL_ON" in error | warn | none) ;; *) die "fail-on must be error, warn or none, not '$PA_FAIL_ON'" ;; esac
 case "$PA_STATUS" in git | github | none) ;; *) die "status must be git, github or none, not '$PA_STATUS'" ;; esac
 case "$PA_COUPLING" in true | false) ;; *) die "coupling must be true or false, not '$PA_COUPLING'" ;; esac
+if [[ -n "${PA_SELF:-}" && -z "${PA_WORKSPACE:-}" ]]; then
+  die "self needs workspace"
+fi
 
 # Expand the globs, separated by spaces or newlines (`plans: |`). A pattern that matches nothing
 # is a mistake in the workflow.
 shopt -s nullglob globstar
 files=()
+selves=()
 declare -A seen=()
-# -d '' reads past newlines; read then reports the end of input, which is expected here
-read -r -d '' -a patterns <<< "$PA_PLANS" || true
-for pattern in "${patterns[@]}"; do
-  matched=($pattern) # unquoted on purpose: this expands the glob
-  [[ ${#matched[@]} -gt 0 ]] || die "plans: '$pattern' matches no file"
-  for f in "${matched[@]}"; do
-    [[ -f "$f" && ! -L "$f" ]] || die "plans: '$pattern' must match regular files, not symlinks"
-    resolved="$(realpath -- "$f" 2>/dev/null)" || die "plans: '$pattern' could not resolve a file"
+expand_plans() {
+  local -a patterns=()
+  local pattern matched f resolved
+  # -d '' reads past newlines; read then reports the end of input, which is expected here
+  read -r -d '' -a patterns <<< "$PA_PLANS" || true
+  for pattern in "${patterns[@]}"; do
+    matched=($pattern) # unquoted on purpose: this expands the glob
+    [[ ${#matched[@]} -gt 0 ]] || die "plans: '$pattern' matches no file"
+    for f in "${matched[@]}"; do
+      [[ -f "$f" && ! -L "$f" ]] || die "plans: '$pattern' must match regular files, not symlinks"
+      resolved="$(realpath -- "$f" 2>/dev/null)" || die "plans: '$pattern' could not resolve a file"
+      case "$resolved" in
+        "${workspace%/}/"*) ;;
+        *) die "plans: '$pattern' matches a file outside the workspace" ;;
+      esac
+      [[ -n "${seen[$f]:-}" ]] || files+=("$f")
+      seen[$f]=1
+    done
+  done
+}
+
+if [[ -n "${PA_WORKSPACE:-}" ]]; then
+  # Secrets plus a pull request's workflow can point the workspace at any repo the token reads.
+  if [[ "${GITHUB_EVENT_NAME:-}" == pull_request_target ]]; then
+    die "pull_request_target is rejected with a workspace: it runs with this repository's secrets on a pull request's files, so a fork could point the workspace at any repository the token can read"
+  fi
+  # Namespaces, not globs: read once, as expand_plans reads patterns, and do not expand them.
+  read -r -d '' -a selves <<< "${PA_SELF:-}" || true
+  if [[ -n "${PA_SELF:-}" && ${#selves[@]} -eq 0 ]]; then
+    die "self is empty"
+  fi
+  for ns in "${selves[@]}"; do
+    [[ "$ns" =~ ^[A-Za-z0-9._-]+$ ]] || die "self: '$ns' must contain only letters, digits, dots, underscores and hyphens"
+  done
+  if [[ "$PA_WORKSPACE" != github:* ]]; then
+    [[ -f "$PA_WORKSPACE" && ! -L "$PA_WORKSPACE" ]] || die "workspace: '$PA_WORKSPACE' must be a regular file, not a symlink"
+    resolved="$(realpath -- "$PA_WORKSPACE" 2>/dev/null)" || die "workspace: '$PA_WORKSPACE' could not resolve a file"
     case "$resolved" in
       "${workspace%/}/"*) ;;
-      *) die "plans: '$pattern' matches a file outside the workspace" ;;
+      *) die "workspace: '$PA_WORKSPACE' matches a file outside the workspace" ;;
     esac
-    [[ -n "${seen[$f]:-}" ]] || files+=("$f")
-    seen[$f]=1
-  done
-done
-[[ ${#files[@]} -gt 0 ]] || die "the plans input is empty"
+  fi
+  if [[ -n "${PA_PLANS:-}" ]]; then
+    expand_plans
+  fi
+else
+  expand_plans
+  [[ ${#files[@]} -gt 0 ]] || die "the plans input is empty"
+fi
 
 # escape <value>: GitHub's escaping for a value in a workflow command line.
 escape() {
@@ -115,27 +152,111 @@ report() {
   fenced "$out"
 }
 
-# check
-args=(check "${files[@]}")
-if [[ -n "$PA_AGAINST" ]]; then args+=(--against "$PA_AGAINST"); fi
-printf '### check\n\n' >> "$body"
-run "${args[@]}" --annotations "$annotations"
-annotations
-report
-
-# coupling: compare each plan file with its version on the base branch
-if [[ "$PA_COUPLING" == true && "${GITHUB_EVENT_NAME:-}" == pull_request ]]; then
+# On a pull request, know the changed files before the workspace check. Coupling reuses the list.
+base_fetched=0
+if [[ -n "${PA_WORKSPACE:-}" && "${GITHUB_EVENT_NAME:-}" == pull_request ]]; then
   base="origin/$GITHUB_BASE_REF"
-  printf '### coupling against `%s`\n\n' "$base" >> "$body"
   if ! git rev-parse --verify --quiet "$base^{commit}" > /dev/null; then
     git fetch --no-tags --quiet origin "+refs/heads/$GITHUB_BASE_REF:refs/remotes/$base" || true
+  fi
+  if git merge-base "$base" HEAD > /dev/null 2>&1; then
+    git diff --name-only "$base...HEAD" > "$tmp/changed.txt"
+  else
+    : > "$tmp/changed.txt"
+  fi
+  base_fetched=1
+fi
+
+# check
+if [[ -n "${PA_WORKSPACE:-}" ]]; then
+  args=(check --workspace "$PA_WORKSPACE")
+  if [[ -n "${PA_SELF:-}" ]]; then
+    for ns in "${selves[@]}"; do
+      args+=(--self "$ns")
+    done
+  else
+    args+=(--self-repo "${GITHUB_REPOSITORY:-}")
+  fi
+  if [[ "${GITHUB_EVENT_NAME:-}" == pull_request && -n "${GITHUB_HEAD_REF:-}" ]]; then
+    args+=(--head-ref "$GITHUB_HEAD_REF")
+  elif [[ "${GITHUB_EVENT_NAME:-}" == push && "${GITHUB_REF:-}" == refs/heads/* && -n "${GITHUB_REF_NAME:-}" && "${GITHUB_REF_NAME}" != "${PA_DEFAULT_BRANCH:-}" ]]; then
+    args+=(--head-ref "$GITHUB_REF_NAME")
+  fi
+  # Fork pull requests and Dependabot have no token that can read the other repositories.
+  if [[ "${PA_NO_SECRETS:-}" == true ]]; then
+    args+=(--allow-missing)
+  fi
+  if [[ -n "$PA_AGAINST" ]]; then args+=(--against "$PA_AGAINST"); fi
+  printf '### check\n\n' >> "$body"
+  run "${args[@]}" --annotations "$annotations" --self-files "$tmp/self.txt"
+  annotations
+  report
+  if [[ -f "$tmp/self.txt" ]]; then
+    self_files=()
+    while IFS= read -r line || [[ -n "$line" ]]; do
+      [[ -n "$line" ]] && self_files+=("$line")
+    done < "$tmp/self.txt"
+    if [[ -n "${PA_PLANS:-}" && ${#self_files[@]} -gt 0 ]]; then
+      for s in "${self_files[@]}"; do
+        s_real="$(realpath -- "$s" 2>/dev/null)" || die "self file '$s' could not be resolved"
+        covered=0
+        for f in "${files[@]}"; do
+          f_real="$(realpath -- "$f" 2>/dev/null)" || die "plans: '$f' could not resolve a file"
+          if [[ "$s_real" == "$f_real" ]]; then covered=1; break; fi
+        done
+        [[ $covered -eq 1 ]] || die "self file '$s' is not among the plans matches"
+      done
+    fi
+    files=()
+    if [[ ${#self_files[@]} -gt 0 ]]; then
+      files=("${self_files[@]}")
+    fi
+  elif [[ $code -eq 0 || $code -eq 1 ]]; then
+    # No workspace was loaded (unreadable or invalid). plans, when given, is checked on its own.
+    if [[ -n "${PA_PLANS:-}" ]]; then
+      args=(check)
+      if [[ ${#files[@]} -gt 0 ]]; then args+=("${files[@]}"); fi
+      if [[ -n "$PA_AGAINST" ]]; then args+=(--against "$PA_AGAINST"); fi
+      printf '### check\n\nNo workspace was loaded (see the findings above); the plans files are checked on their own.\n\n' >> "$body"
+      run "${args[@]}" --annotations "$annotations"
+      annotations
+      report
+    else
+      printf 'No plan file of this repository was read.\n\n' >> "$body"
+    fi
+  fi
+  if [[ "${GITHUB_EVENT_NAME:-}" == pull_request && "$PA_WORKSPACE" != github:* && -f "$tmp/self.txt" && -f "$tmp/changed.txt" ]]; then
+    ws_rel="$(realpath --relative-to="$workspace" -- "$PA_WORKSPACE")"
+    if grep -Fxq -- "$ws_rel" "$tmp/changed.txt"; then
+      printf 'The workspace file changed in this pull request; entries were read from this version.\n\n' >> "$body"
+    fi
+  fi
+else
+  args=(check "${files[@]}")
+  if [[ -n "$PA_AGAINST" ]]; then args+=(--against "$PA_AGAINST"); fi
+  printf '### check\n\n' >> "$body"
+  run "${args[@]}" --annotations "$annotations"
+  annotations
+  report
+fi
+
+# coupling: compare each plan file with its version on the base branch
+if [[ ${#files[@]} -gt 0 && "$PA_COUPLING" == true && "${GITHUB_EVENT_NAME:-}" == pull_request ]]; then
+  base="origin/$GITHUB_BASE_REF"
+  printf '### coupling against `%s`\n\n' "$base" >> "$body"
+  if [[ $base_fetched -eq 0 ]]; then
+    if ! git rev-parse --verify --quiet "$base^{commit}" > /dev/null; then
+      git fetch --no-tags --quiet origin "+refs/heads/$GITHUB_BASE_REF:refs/remotes/$base" || true
+    fi
   fi
   if ! git merge-base "$base" HEAD > /dev/null 2>&1; then
     errors=$((errors + 1))
     broken=1
     printf 'Could not find where this branch left `%s`. Set `fetch-depth: 0` on actions/checkout.\n\n' "$base" >> "$body"
   else
-    git diff --name-only "$base...HEAD" > "$tmp/changed.txt"
+    if [[ $base_fetched -eq 0 ]]; then
+      git diff --name-only "$base...HEAD" > "$tmp/changed.txt"
+    fi
     new=()
     for f in "${files[@]}"; do
       if ! git cat-file -e "$base:$f" 2> /dev/null; then
@@ -155,7 +276,7 @@ if [[ "$PA_COUPLING" == true && "${GITHUB_EVENT_NAME:-}" == pull_request ]]; the
 fi
 
 # status: suggestions for a person to review; never fails the job
-if [[ "$PA_STATUS" != none ]]; then
+if [[ ${#files[@]} -gt 0 && "$PA_STATUS" != none ]]; then
   printf '### status --%s\n\nSuggestions only; they never fail the job. Labels: [docs/STATUS.md](https://github.com/plan-atlas/plan-atlas/blob/main/docs/STATUS.md).\n\n' "$PA_STATUS" >> "$body"
   for f in "${files[@]}"; do
     if [[ "$PA_STATUS" == git ]]; then
@@ -180,10 +301,18 @@ result=passed
 if [[ $errors -gt 0 || $warnings -gt 0 ]]; then result=reported; fi
 if [[ $failed -eq 1 ]]; then result=failed; fi
 
+plan_list=''
+if [[ ${#files[@]} -gt 0 ]]; then
+  plan_list="$(printf '`%s` ' "${files[@]}")"
+fi
 {
   printf '## plan-atlas %s: %s error(s), %s warning(s), %s note(s), %s status suggestion(s)\n\n' \
     "$result" "$errors" "$warnings" "$notes" "$suggestions"
-  printf 'Plan files: %s(fail-on: %s)\n\n' "$(printf '`%s` ' "${files[@]}")" "$PA_FAIL_ON"
+  if [[ -n "${PA_WORKSPACE:-}" ]]; then
+    printf 'Plan files: %sworkspace: `%s` (fail-on: %s)\n\n' "$plan_list" "$PA_WORKSPACE" "$PA_FAIL_ON"
+  else
+    printf 'Plan files: %s(fail-on: %s)\n\n' "$plan_list" "$PA_FAIL_ON"
+  fi
   cat "$body"
 } >> "$summary"
 

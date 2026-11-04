@@ -4,7 +4,16 @@ author: plan-atlas contributors
 inputs:
   plans:
     description: Plan files, as globs separated by spaces or newlines (for example "plans/*.json").
-    required: true
+    required: false
+    default: ''
+  workspace:
+    description: A workspace file in this repository, or github:<owner>/<repo>:<path>[@<ref>] for a hub's canonical file.
+    required: false
+    default: ''
+  self:
+    description: Namespaces this repository owns, separated by spaces; empty selects this repository's entries.
+    required: false
+    default: ''
   against:
     description: A committed atlas.json for check --against. Empty skips the comparison.
     required: false
@@ -18,7 +27,7 @@ inputs:
     required: false
     default: git
   token:
-    description: Token for status github. Only read-only queries are made.
+    description: "Used to fetch a github: workspace and github entries, and for status: github. Only read-only queries are made."
     required: false
     default: ${{ github.token }}
   fail-on:
@@ -49,9 +58,13 @@ runs:
       run: bash "$GITHUB_ACTION_PATH/action/run.sh"
       env:
         PA_PLANS: ${{ inputs.plans }}
+        PA_WORKSPACE: ${{ inputs.workspace }}
+        PA_SELF: ${{ inputs.self }}
         PA_AGAINST: ${{ inputs.against }}
         PA_COUPLING: ${{ inputs.coupling }}
         PA_STATUS: ${{ inputs.status }}
         PA_FAIL_ON: ${{ inputs.fail-on }}
+        PA_NO_SECRETS: ${{ (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository) || github.actor == 'dependabot[bot]' }}
+        PA_DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
         PLAN_ATLAS_LANG: ${{ inputs.lang }}
         GH_TOKEN: ${{ inputs.token }}
