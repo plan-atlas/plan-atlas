@@ -1,6 +1,6 @@
 {
   "name": "plan-atlas",
-  "version": "0.1.1",
+  "version": "0.2.0",
   "description": "Layered, validated maps of plans: agents write the plan data, CI checks every level agrees, people drill down in one HTML page.",
   "license": "MIT",
   "author": "plan-atlas contributors",

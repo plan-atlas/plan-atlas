@@ -6,7 +6,7 @@ Your agent writes the plan as data; plan-atlas checks it against itself, other p
 
 English | [繁體中文](README.zh-TW.md)
 
-Version 0.1.1. Messages and maps are in English by default. Pass `--lang zh-TW` on any command or set `PLAN_ATLAS_LANG=zh-TW` for Traditional Chinese. `--lang` overrides the environment variable.
+Version 0.2.0. Messages and maps are in English by default. Pass `--lang zh-TW` on any command or set `PLAN_ATLAS_LANG=zh-TW` for Traditional Chinese. `--lang` overrides the environment variable.
 
 ## Demo
 
@@ -57,7 +57,7 @@ node src/cli.ts status --github owner/repo plans/plan.json
 **In CI.** After `actions/checkout` with `fetch-depth: 0`:
 
 ```yaml
-- uses: plan-atlas/plan-atlas@v0.1.1
+- uses: plan-atlas/plan-atlas@v0.2.0
   with:
     plans: plans/*.json
 ```

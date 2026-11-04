@@ -6,7 +6,7 @@
 
 你的 agent 把計畫寫成資料，plan-atlas 檢查它本身是否一致，並對照其他計畫、git 與 GitHub，再畫成一張可以層層鑽入的地圖。
 
-版本 0.1.1。訊息與地圖預設為英文。任何命令都可加上 `--lang zh-TW`，或設定 `PLAN_ATLAS_LANG=zh-TW`，使用繁體中文。`--lang` 優先於環境變數。
+版本 0.2.0。訊息與地圖預設為英文。任何命令都可加上 `--lang zh-TW`，或設定 `PLAN_ATLAS_LANG=zh-TW`，使用繁體中文。`--lang` 優先於環境變數。
 
 ## 示範影片
 
@@ -57,7 +57,7 @@ node src/cli.ts status --github owner/repo plans/plan.json
 **在 CI 中。** 在 `actions/checkout`（設定 `fetch-depth: 0`）之後加上：
 
 ```yaml
-- uses: plan-atlas/plan-atlas@v0.1.1
+- uses: plan-atlas/plan-atlas@v0.2.0
   with:
     plans: plans/*.json
 ```

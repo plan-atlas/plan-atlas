@@ -151,7 +151,7 @@ jobs:
       - uses: actions/checkout@v5
         with:
           fetch-depth: 0
-      - uses: plan-atlas/plan-atlas@v0.1.1
+      - uses: plan-atlas/plan-atlas@v0.2.0
         with:
           plans: plans/*.json
           # fail-on: error   # block pull requests on an ERROR; the default, none, only reports
