@@ -129,15 +129,21 @@ describe('§V0 shape', () => {
     const { save } = dir(t);
     save('sdk/plan.json', P([G('sdk', null), I('a', 'sdk')]));
     const ws = save('hub/ws.json', { version: 1, plans: [{ namespace: 'sdk', path: '../sdk', file: 'plan.json' }] });
-    assert.deepEqual(ids(readWorkspace(ws).findings), ['ERROR V0 workspaceNamespace']);
+    const mismatch = readWorkspace(ws);
+    assert.deepEqual(ids(mismatch.findings), ['ERROR V0 workspaceNamespace']);
+    assert.equal(mismatch.findings[0].namespace, 'sdk');
     save('sdk/plan.json', P([G('sdk', null), I('a', 'sdk')], { namespace: 'sdk' }));
     assert.deepEqual(readWorkspace(ws).findings, []);
   });
   test('§V0.35 met: an entry that cannot be read is ERROR, WARN with --allow-missing; negated: a readable entry', (t) => {
     const { save } = dir(t);
     const ws = save('hub/ws.json', { version: 1, plans: [{ namespace: 'sdk', path: '../sdk', file: 'plan.json' }] });
-    assert.deepEqual(ids(readWorkspace(ws).findings), ['ERROR V0 workspaceRead']);
-    assert.deepEqual(ids(readWorkspace(ws, [], { allowMissing: true }).findings), ['WARN V0 workspaceRead']);
+    const missing = readWorkspace(ws);
+    assert.deepEqual(ids(missing.findings), ['ERROR V0 workspaceRead']);
+    assert.equal(missing.findings[0].namespace, 'sdk');
+    const allowed = readWorkspace(ws, [], { allowMissing: true });
+    assert.deepEqual(ids(allowed.findings), ['WARN V0 workspaceRead']);
+    assert.equal(allowed.findings[0].namespace, 'sdk');
     save('sdk/plan.json', P([G('sdk', null), I('a', 'sdk')], { namespace: 'sdk' }));
     assert.deepEqual(readWorkspace(ws).findings, []);
   });
@@ -158,7 +164,9 @@ describe('§V0 shape', () => {
         const ns = /name: "(\w+)"/.exec(q)?.[1] ?? 'sdk';
         return { data: { p0: { defaultBranchRef: { name: 'main' }, base: { text: JSON.stringify(plan(ns)) }, baseCommit: { oid: 'abc' } } } };
       };
-      assert.deepEqual(ids(readWorkspace(ws, [], { cwd: d, self: ['api'], repository: 'org/sdk', run }).findings), ['WARN V0 selfLeftOut', 'WARN V0 selfOtherRepository']);
+      const warned = readWorkspace(ws, [], { cwd: d, self: ['api'], repository: 'org/sdk', run });
+      assert.deepEqual(ids(warned.findings), ['WARN V0 selfLeftOut', 'WARN V0 selfOtherRepository']);
+      assert.deepEqual(warned.findings.map((f) => f.namespace), ['sdk', 'api']);
       assert.deepEqual(readWorkspace(ws, [], { cwd: d, self: ['api'], run }).findings, []);
       assert.deepEqual(readWorkspace(ws, [], { cwd: d, self: ['sdk'], repository: 'Org/SDK', run }).findings, []);
     } finally {

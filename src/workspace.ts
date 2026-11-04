@@ -138,9 +138,10 @@ export function readWorkspace(file: string, paths: string[] = [], opts: Workspac
   let workspace: Workspace | null = null;
   let source: WorkspaceRead['source'];
   const finish = (): WorkspaceRead => ({ workspace, entries, findings, ...(source ? { source } : {}) });
-  const unreadable = (label: string, err: unknown, optional: boolean, findingFile?: string) => findings.push({
+  const unreadable = (label: string, err: unknown, optional: boolean, namespace: string, findingFile?: string) => findings.push({
     level: optional && opts.allowMissing ? 'WARN' : 'ERROR', code: 'V0',
     message: t(lang, 'workspaceRead', label, err instanceof Error ? err.message : String(err)),
+    namespace,
     ...(findingFile ? { file: findingFile } : {}),
   });
   const shown = (abs: string) => slashes(relative(cwd, abs));
@@ -204,7 +205,8 @@ export function readWorkspace(file: string, paths: string[] = [], opts: Workspac
   const accept = (entry: WorkspaceEntry, plan: PlanFile, info: Omit<WorkspacePlan, 'entry' | 'plan'> = {}) => {
     if (plan.namespace !== entry.namespace) {
       findings.push({
-        level: 'ERROR', code: 'V0', message: t(lang, 'workspaceNamespace', entry.namespace, plan.namespace ?? t(lang, 'none'), entry.file),
+        level: 'ERROR', code: 'V0', namespace: entry.namespace,
+        message: t(lang, 'workspaceNamespace', entry.namespace, plan.namespace ?? t(lang, 'none'), entry.file),
         ...(info.self && info.file ? { file: shown(info.file) } : {}),
       });
       return;
@@ -218,7 +220,7 @@ export function readWorkspace(file: string, paths: string[] = [], opts: Workspac
     let json: unknown;
     // The file was read: invalid JSON is an invalid plan, which --allow-missing never downgrades.
     try { json = parseJson(content, label, lang); }
-    catch (err) { return unreadable(`${entry.namespace} (${label})`, err, false, selfFile); }
+    catch (err) { return unreadable(`${entry.namespace} (${label})`, err, false, entry.namespace, selfFile); }
     const parsed = parsePlan(json, lang);
     findings.push(...parsed.findings.map((f) => selfFile && f.file === undefined ? { ...f, file: selfFile } : f));
     if (parsed.plan) accept(entry, parsed.plan, info);
@@ -244,15 +246,15 @@ export function readWorkspace(file: string, paths: string[] = [], opts: Workspac
       for (const entry of workspace.plans) {
         if (entry.github === undefined) continue;
         const own = entry.github.toLowerCase() === repository.toLowerCase();
-        if (selfEntries.has(entry) && !own) findings.push({ level: 'WARN', code: 'V0', message: t(lang, 'selfOtherRepository', entry.namespace, entry.github, repository) });
-        if (own && !selfEntries.has(entry)) findings.push({ level: 'WARN', code: 'V0', message: t(lang, 'selfLeftOut', entry.namespace, entry.github, repository) });
+        if (selfEntries.has(entry) && !own) findings.push({ level: 'WARN', code: 'V0', namespace: entry.namespace, message: t(lang, 'selfOtherRepository', entry.namespace, entry.github, repository) });
+        if (own && !selfEntries.has(entry)) findings.push({ level: 'WARN', code: 'V0', namespace: entry.namespace, message: t(lang, 'selfLeftOut', entry.namespace, entry.github, repository) });
       }
     }
   }
   // A fetched workspace cannot resolve path entries; a self entry is read from cwd instead (§V0.32).
   if (source) {
     for (const entry of workspace.plans) {
-      if (entry.path !== undefined && !selfEntries.has(entry)) findings.push({ level: 'ERROR', code: 'V0', message: t(lang, 'workspaceRemotePath', entry.namespace) });
+      if (entry.path !== undefined && !selfEntries.has(entry)) findings.push({ level: 'ERROR', code: 'V0', namespace: entry.namespace, message: t(lang, 'workspaceRemotePath', entry.namespace) });
     }
     if (findings.some((f) => f.level === 'ERROR')) {
       // An invalid workspace was not loaded: --self-files stays unwritten, as for other V0.32 rows.
@@ -268,7 +270,7 @@ export function readWorkspace(file: string, paths: string[] = [], opts: Workspac
       content = readText(path, lang);
     } catch (err) {
       // --allow-missing is for entries read from elsewhere; a self file is an input.
-      unreadable(`${raw.namespace} (${path})`, err, false, shown(path));
+      unreadable(`${raw.namespace} (${path})`, err, false, raw.namespace, shown(path));
       return;
     }
     // A self entry's repository is this checkout. Keep ref; a path that points elsewhere is not it.
@@ -310,7 +312,7 @@ export function readWorkspace(file: string, paths: string[] = [], opts: Workspac
         content = readText(path, lang);
       } catch (err) {
         // A file that is missing can be allowed; one outside the confinement root cannot.
-        unreadable(`${entry.namespace} (${path})`, err, !(err instanceof ConfinedFileError));
+        unreadable(`${entry.namespace} (${path})`, err, !(err instanceof ConfinedFileError), entry.namespace);
         continue;
       }
       parse(entry, content, { file: path });
@@ -321,7 +323,7 @@ export function readWorkspace(file: string, paths: string[] = [], opts: Workspac
     let response: unknown;
     try { response = (opts.run ?? ((q: string) => gh(q, lang)))(workspaceQuery(remote, opts.headRef)); }
     catch (err) {
-      for (const entry of remote) unreadable(entry.namespace, err, true);
+      for (const entry of remote) unreadable(entry.namespace, err, true, entry.namespace);
       return finish();
     }
     const data = record(response) && record(response.data) ? response.data : {};
@@ -336,7 +338,7 @@ export function readWorkspace(file: string, paths: string[] = [], opts: Workspac
         const ref = head ? opts.headRef : entry.ref ?? (record(repo) && record(repo.defaultBranchRef) && text(repo.defaultBranchRef.name) ? repo.defaultBranchRef.name : undefined);
         if (!record(blob) || typeof blob.text !== 'string' || !record(commit) || !text(commit.oid) || !ref) throw new Error(t(lang, 'workspaceBlob', errors));
         parse(entry, blob.text, { ref, sha: commit.oid });
-      } catch (err) { unreadable(`${entry.namespace} (${entry.github}:${entry.file})`, err, true); }
+      } catch (err) { unreadable(`${entry.namespace} (${entry.github}:${entry.file})`, err, true, entry.namespace); }
     });
   }
   return finish();

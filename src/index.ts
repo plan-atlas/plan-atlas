@@ -19,6 +19,7 @@ export { buildModel, ROOT_PAGE, topPage, type Model } from './model.ts';
 export { parsePlan } from './parse.ts';
 export { drawio } from './render/drawio.ts';
 export { renderHtml } from './render/html.ts';
+export { healthReport, type HealthEntry, type HealthInput, type HealthRepository } from './render/health.ts';
 export { markdown } from './render/markdown.ts';
 export { pageMermaid } from './render/mermaid.ts';
 export { viewModel } from './render/viewmodel.ts';

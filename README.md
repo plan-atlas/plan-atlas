@@ -66,7 +66,7 @@ It runs `check`, `coupling` on pull requests and `status --git`, and writes the 
 
 ## Several repositories
 
-Keep one `plan-atlas.workspace.json` with a namespace and an explicit plan file for each repository, using `github: "owner/repo"` or `path: "../repo"` (relative to the workspace file). Run `check`, `build` or `status` with `--workspace plan-atlas.workspace.json`; positional plan files replace matching entries before fetching. `--self <ns>` and `--self-repo owner/repo` read those entries from the current directory. `--workspace` also accepts `github:<owner>/<repo>:<path>[@<ref>]`. `--head-ref feature/name` prefers that branch wherever it exists. GitHub reads print the selected ref and commit SHA. See the [workspace example and commands](docs/GETTING-STARTED.md#6-several-repositories).
+Keep one `plan-atlas.workspace.json` with a namespace and an explicit plan file for each repository, using `github: "owner/repo"` or `path: "../repo"` (relative to the workspace file). Run `check`, `build` or `status` with `--workspace plan-atlas.workspace.json`; positional plan files replace matching entries before fetching. `--self <ns>` and `--self-repo owner/repo` read those entries from the current directory. `--workspace` also accepts `github:<owner>/<repo>:<path>[@<ref>]`. `--head-ref feature/name` prefers that branch wherever it exists. GitHub reads print the selected ref and commit SHA. `health` writes that map plus `health.md` and `health-issue.md`; `examples/hub/plan-health.yml` is a hub workflow that keeps one issue updated from those reports. See the [workspace example and commands](docs/GETTING-STARTED.md#6-several-repositories).
 
 ## The plan file
 

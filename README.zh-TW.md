@@ -66,7 +66,7 @@ node src/cli.ts status --github owner/repo plans/plan.json
 
 ## 多個儲存庫
 
-用一份 `plan-atlas.workspace.json` 列出各計畫的 namespace 與明確的檔案路徑，並指定 `github: "owner/repo"` 或 `path: "../repo"`（相對於工作區檔案）。執行 `check`、`build` 或 `status` 時加上 `--workspace plan-atlas.workspace.json`；位置參數中的計畫檔會在擷取前取代對應項目。`--self <ns>` 與 `--self-repo owner/repo` 會從目前目錄讀取這些項目。`--workspace` 也接受 `github:<owner>/<repo>:<path>[@<ref>]`。`--head-ref feature/name` 會在各儲存庫優先使用存在的同名分支。讀取 GitHub 計畫時會顯示選用的參照與 commit SHA。詳見[工作區範例與命令](docs/GETTING-STARTED.md#6-several-repositories)。
+用一份 `plan-atlas.workspace.json` 列出各計畫的 namespace 與明確的檔案路徑，並指定 `github: "owner/repo"` 或 `path: "../repo"`（相對於工作區檔案）。執行 `check`、`build` 或 `status` 時加上 `--workspace plan-atlas.workspace.json`；位置參數中的計畫檔會在擷取前取代對應項目。`--self <ns>` 與 `--self-repo owner/repo` 會從目前目錄讀取這些項目。`--workspace` 也接受 `github:<owner>/<repo>:<path>[@<ref>]`。`--head-ref feature/name` 會在各儲存庫優先使用存在的同名分支。讀取 GitHub 計畫時會顯示選用的參照與 commit SHA。`health` 會寫出同一份地圖，以及 `health.md` 與 `health-issue.md`；`examples/hub/plan-health.yml` 是 hub 的 workflow，用這兩份報告維持一則 issue。詳見[工作區範例與命令](docs/GETTING-STARTED.md#6-several-repositories)。
 
 ## 計畫檔案
 

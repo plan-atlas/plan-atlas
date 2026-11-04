@@ -150,6 +150,7 @@ Usage:
   plan-atlas status --github <owner/repo> <plan.json> [--json]
   plan-atlas check|build|status --workspace <file> [plan.json...] [--head-ref <branch>] [--allow-missing]
                      [--self <ns>] [--self-repo <owner/repo>] [--self-files <file>]
+  plan-atlas health --workspace <file|github:...> [--out dir] [--no-status] [--head-ref <branch>] [--allow-missing]
   plan-atlas coupling --before old.json --after new.json --changed <file-list|->
 
   check     Validate plans (several files are merged; refs use <namespace>:<id>).
@@ -163,6 +164,9 @@ Usage:
                       pull request on an open item or group, or an open one on a done
                       item, asks for a check; a link GitHub cannot find is reported.
             --json    prints the suggestions as JSON.
+  health    Write the combined map (when the plans load) plus health.md and health-issue.md.
+            --no-status skips git and GitHub status suggestions. Exit 0 when both
+            reports were written, even with ERROR findings.
   coupling  For a change set: every added, removed or retyped cross-group dependency
             must come with a change to the plan file it cites. --changed takes a file
             with one repo-relative path per line (e.g. git diff --name-only), or - for stdin.
@@ -181,10 +185,11 @@ Usage:
                      Prints each fetched plan's selected ref and commit SHA.
   --allow-missing     Report unreadable workspace entries as WARN instead of ERROR.
                      An unreadable self file stays an ERROR.
+  --no-status         With health, do not collect status suggestions.
   --annotations <file> check, build and coupling also write a GitHub annotation for each
                      ERROR and WARN finding, on its plan file.
 
-Exit code 1 when any ERROR is found; 2 for bad arguments or git and gh failures.`, 'zh-TW': `plan-atlas — 分層、經過驗證的計畫地圖
+Exit code 1 when any ERROR is found; health exits 0 when its reports were written. Exit code 2 for bad arguments or git and gh failures.`, 'zh-TW': `plan-atlas — 分層、經過驗證的計畫地圖
 
 用法：
   plan-atlas check  <plan.json...> [--against atlas.json]
@@ -193,6 +198,7 @@ Exit code 1 when any ERROR is found; 2 for bad arguments or git and gh failures.
   plan-atlas status --github <owner/repo> <plan.json> [--json]
   plan-atlas check|build|status --workspace <file> [plan.json...] [--head-ref <branch>] [--allow-missing]
                      [--self <ns>] [--self-repo <owner/repo>] [--self-files <file>]
+  plan-atlas health --workspace <file|github:...> [--out dir] [--no-status] [--head-ref <branch>] [--allow-missing]
   plan-atlas coupling --before old.json --after new.json --changed <file-list|->
 
   check     驗證計畫（多個檔案會合併；跨檔參照寫成 <namespace>:<id>）。
@@ -205,6 +211,9 @@ Exit code 1 when any ERROR is found; 2 for bad arguments or git and gh failures.
                       或 pull request 已合併；或已完成的項目，其 issue 或 pull request
                       還開著，都會提示檢查；GitHub 找不到的連結也會列出。
             --json    以 JSON 輸出建議。
+  health    寫出合併地圖（計畫能載入時）以及 health.md 與 health-issue.md。
+            --no-status 略過 git 與 GitHub 的狀態建議。兩份報告都寫出時結束碼為 0，
+            即使有 ERROR。
   coupling  針對一組變更：每條新增、刪除或改類型的跨群組依賴，都必須同時修改它
             引用的計畫檔。--changed 接受每行一個儲存庫相對路徑的檔案（例如
             git diff --name-only 的輸出），或用 - 代表標準輸入。
@@ -223,10 +232,23 @@ Exit code 1 when any ERROR is found; 2 for bad arguments or git and gh failures.
                      顯示每份遠端計畫使用的參照與 commit SHA。
   --allow-missing     將無法讀取的工作區項目從 ERROR 改為 WARN。
                      無法讀取的 self 檔案仍是 ERROR。
+  --no-status         health 不收集狀態建議。
   --annotations <file> check、build 與 coupling 另外為每個 ERROR 與 WARN 寫出
                      GitHub 註記，標在它所屬的計畫檔上。
 
-有任何 ERROR 時結束碼為 1；參數錯誤或 git、gh 失敗時為 2。` },
+有任何 ERROR 時結束碼為 1；health 寫出報告後結束碼為 0。參數錯誤或 git、gh 失敗時為 2。` },
+  healthArgs: { en: 'health needs --workspace <file> and takes no plan files; --self, --self-repo, --self-files, --against and --annotations are not accepted', 'zh-TW': 'health 必須指定 --workspace <file>，且不能帶計畫檔；不接受 --self、--self-repo、--self-files、--against 與 --annotations' },
+  healthTitle: { en: 'Plan health', 'zh-TW': '計畫健康' },
+  healthLastRun: { en: (at: string) => `Last run: ${at}`, 'zh-TW': (at: string) => `上次執行：${at}` },
+  healthWorkspace: { en: 'Workspace', 'zh-TW': '工作區' },
+  healthWorkspaceFile: { en: 'Workspace file', 'zh-TW': '工作區檔案' },
+  healthCounts: { en: (errors: number, warnings: number, suggestions: number) => `${errors} error(s), ${warnings} warning(s), ${suggestions} suggestion(s)`, 'zh-TW': (errors: number, warnings: number, suggestions: number) => `${errors} 個錯誤、${warnings} 個警告、${suggestions} 個建議` },
+  healthNone: { en: 'Nothing to report.', 'zh-TW': '沒有需要回報的內容。' },
+  healthMore: { en: (count: number) => `${count} more findings: see the run artifact.`, 'zh-TW': (count: number) => `另有 ${count} 項，請看這次執行的 artifact。` },
+  healthContinues: { en: 'The report continues in the run artifact.', 'zh-TW': '報告其餘部分請看這次執行的 artifact。' },
+  healthStatusError: { en: (message: string) => `Status: ${message}`, 'zh-TW': (message: string) => `狀態：${message}` },
+  healthPath: { en: 'Path', 'zh-TW': '路徑' },
+  wroteHealth: { en: (out: string) => `wrote ${out}/health.md and ${out}/health-issue.md\n`, 'zh-TW': (out: string) => `已寫出 ${out}/health.md 與 ${out}/health-issue.md\n` },
   findingCounts: { en: (errors: number, warnings: number, notes: number) => `\n${errors} error(s), ${warnings} warning(s), ${notes} note(s)`, 'zh-TW': (errors: number, warnings: number, notes: number) => `\n${errors} 個錯誤、${warnings} 個警告、${notes} 個提醒` },
   suggestionCount: { en: (count: number) => `\n${count} suggestion(s)`, 'zh-TW': (count: number) => `\n${count} 個建議` },
   statusDetail: { en: (status: string, evidence: string) => `${status}; ${evidence}`, 'zh-TW': (status: string, evidence: string) => `${status}；${evidence}` },

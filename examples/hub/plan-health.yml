@@ -1,0 +1,113 @@
+# Hub workflow: one combined plan map and one health issue.
+#
+# Copy this file to .github/workflows/ in the hub. Keep plan-atlas.workspace.json at the
+# hub root. It pins plan-atlas at v0.2.0.
+#
+# PLAN_ATLAS_TOKEN is a fine-grained token with contents: read, issues: read and
+# pull_requests: read on the member repositories. issues: read and pull_requests: read
+# are for status suggestions. With --no-status, contents: read is enough. The health
+# issue is edited by a separate job.
+
+name: plan-atlas health
+
+on:
+  schedule:
+    # Once a day, at an odd minute, so it does not land on the top of the hour.
+    - cron: '17 6 * * *'
+  workflow_dispatch:
+  # repository_dispatch:
+  #   types: [plan-atlas]
+  # Optional. A member can send this after merging, which needs a token with write access
+  # to this hub stored in every member. Each dispatch spends Actions minutes. Leave the
+  # block commented out unless that cost is worth a run on every merge.
+
+permissions: {}
+
+concurrency:
+  group: plan-atlas-health
+  cancel-in-progress: false
+
+jobs:
+  health:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/checkout@v5
+        with:
+          repository: plan-atlas/plan-atlas
+          ref: v0.2.0
+          path: .plan-atlas
+
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+
+      - name: Health report
+        env:
+          # This job's github.token is read-only (contents: read), so the fallback is safe.
+          GH_TOKEN: ${{ secrets.PLAN_ATLAS_TOKEN || github.token }}
+        run: node .plan-atlas/src/cli.ts health --workspace plan-atlas.workspace.json --out atlas
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: plan-atlas
+          path: atlas/
+
+  issue:
+    needs: health
+    runs-on: ubuntu-latest
+    permissions:
+      issues: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: plan-atlas
+          path: atlas
+
+      - name: Update the plan health issue
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          gh label create plan-atlas --repo "${GITHUB_REPOSITORY}" --description "Plan health" --force
+          number="$(gh issue list --repo "${GITHUB_REPOSITORY}" --label plan-atlas --state open --limit 100 --json number,body --jq '[.[] | select(.body != null and (.body | startswith("<!-- plan-atlas:health -->")))] | .[0].number // empty')"
+          if [ -z "${number}" ]; then
+            gh issue create --repo "${GITHUB_REPOSITORY}" --title "Plan health" --label plan-atlas --body-file atlas/health-issue.md
+          else
+            gh issue edit "${number}" --repo "${GITHUB_REPOSITORY}" --body-file atlas/health-issue.md
+          fi
+
+  # On Free, Pro and Team plans the Pages site of a private repository is public,
+  # and the map holds every member's titles, quotes and evidence.
+  # Pages must be set to deploy from GitHub Actions (Settings → Pages → Source).
+  pages:
+    if: vars.PLAN_ATLAS_PAGES == 'true'
+    needs: health
+    runs-on: ubuntu-latest
+    permissions:
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deploy.outputs.page_url }}
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: plan-atlas
+          path: atlas
+
+      - name: Prepare the site
+        run: |
+          set -euo pipefail
+          mkdir -p site
+          cp atlas/atlas.html site/index.html
+
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: site
+
+      - uses: actions/deploy-pages@v4
+        id: deploy

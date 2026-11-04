@@ -6,7 +6,7 @@ import { parseArgs } from 'node:util';
 import { t, type Lang } from './messages.ts';
 import { checkCoupling } from './coupling.ts';
 import { confineFiles, readInput, readJson, readText } from './files.ts';
-import { derive, drawio, loadFiles, loadWorkspace, markdown, parsePlan, renderHtml, suggestFromGithub, suggestStatus, namespaceOf, suggestWorkspace, type Suggestion, type WorkspacePlan } from './index.ts';
+import { derive, drawio, healthReport, loadFiles, loadWorkspace, markdown, parsePlan, renderHtml, suggestFromGithub, suggestStatus, namespaceOf, suggestWorkspace, type HealthInput, type Model, type Suggestion, type WorkspaceOptions, type WorkspacePlan } from './index.ts';
 import type { Finding } from './types.ts';
 import type { Derived } from './derive.ts';
 
@@ -34,6 +34,93 @@ function writeSelfFiles(loaded: { workspace: unknown; entries: WorkspacePlan[] }
   writeFileSync(file, lines.length === 0 ? '' : `${lines.join('\n')}\n`);
 }
 
+function language(value?: string): Lang {
+  const lang = value ?? process.env.PLAN_ATLAS_LANG ?? 'en';
+  if (lang !== 'en' && lang !== 'zh-TW') throw new Error(t('en', 'badLang', lang));
+  return lang;
+}
+
+/** The four map files `build` writes. Health uses the same function, so the bytes stay identical. */
+function writeAtlas(out: string, model: Model, findings: Finding[], lang: Lang) {
+  mkdirSync(out, { recursive: true });
+  writeFileSync(join(out, 'atlas.json'), JSON.stringify(derive(model), null, 2) + '\n');
+  writeFileSync(join(out, 'atlas.md'), markdown(model, findings, lang));
+  writeFileSync(join(out, 'atlas.drawio'), drawio(model, lang));
+  writeFileSync(join(out, 'atlas.html'), renderHtml(model, findings, undefined, lang));
+  console.log(t(lang, 'wrote', out, model.pages.size, model.items.length));
+}
+
+/** A finding with `namespace` goes to that entry; anything else stays in the general section. */
+function healthFromLoaded(loaded: ReturnType<typeof loadWorkspace>, workspace: string, opts: WorkspaceOptions, noStatus: boolean): HealthInput {
+  const plans = loaded.workspace?.plans ?? [];
+  const byNamespace = new Map(loaded.entries.flatMap((entry) => entry.entry ? [[entry.entry.namespace, entry] as const] : []));
+  const repositories: HealthInput['repositories'] = [];
+  const seen = new Map<string, HealthInput['repositories'][number]>();
+  for (const plan of plans) {
+    const label = plan.github ?? plan.path;
+    if (label === undefined) continue;
+    const key = plan.github !== undefined ? `github:${plan.github}` : `path:${label}`;
+    let repo = seen.get(key);
+    if (!repo) {
+      repo = { label, entries: [] };
+      seen.set(key, repo);
+      repositories.push(repo);
+    }
+    const read = byNamespace.get(plan.namespace);
+    let suggestions: Suggestion[] = [];
+    let statusError: string | undefined;
+    if (!noStatus && read) {
+      try { suggestions = suggestWorkspace([read], opts); }
+      catch (err) { statusError = err instanceof Error ? err.message : String(err); }
+    }
+    repo.entries.push({
+      namespace: plan.namespace,
+      ...(read?.ref !== undefined ? { ref: read.ref } : {}),
+      ...(read?.sha !== undefined ? { sha: read.sha } : {}),
+      findings: loaded.findings.filter((f) => f.namespace === plan.namespace),
+      suggestions,
+      ...(statusError !== undefined ? { statusError } : {}),
+    });
+  }
+  const namespaces = new Set(repositories.flatMap((repo) => repo.entries.map((entry) => entry.namespace)));
+  return {
+    generatedAt: new Date().toISOString(),
+    workspace,
+    ...(loaded.source ? { source: loaded.source } : {}),
+    general: loaded.findings.filter((f) => f.namespace === undefined || !namespaces.has(f.namespace)),
+    repositories,
+  };
+}
+
+function runHealth(rest: string[]): number {
+  const { values, positionals } = parseArgs({
+    args: rest, allowPositionals: true,
+    options: {
+      lang: { type: 'string' }, workspace: { type: 'string' }, out: { type: 'string', default: 'atlas' },
+      'no-status': { type: 'boolean' }, 'head-ref': { type: 'string' }, 'allow-missing': { type: 'boolean' },
+      self: { type: 'string', multiple: true }, 'self-repo': { type: 'string' }, 'self-files': { type: 'string' },
+      against: { type: 'string' }, annotations: { type: 'string' },
+    },
+  });
+  const lang = language(values.lang);
+  if (positionals.length > 0 || values.workspace === undefined || values.self !== undefined || values['self-repo'] !== undefined ||
+      values['self-files'] !== undefined || values.against !== undefined || values.annotations !== undefined) {
+    console.error(t(lang, 'healthArgs'));
+    return 2;
+  }
+  const opts = { lang, headRef: values['head-ref'], allowMissing: values['allow-missing'], confine: process.env.PLAN_ATLAS_CONFINE };
+  const loaded = loadWorkspace(values.workspace, [], opts);
+  printRefs(loaded, lang);
+  if (loaded.model) writeAtlas(values.out!, loaded.model, loaded.findings, lang);
+  else mkdirSync(values.out!, { recursive: true });
+  const report = healthReport(healthFromLoaded(loaded, values.workspace, opts, values['no-status'] === true), lang);
+  writeFileSync(join(values.out!, 'health.md'), report.full);
+  writeFileSync(join(values.out!, 'health-issue.md'), report.issue);
+  print(loaded.findings, lang);
+  console.log(t(lang, 'wroteHealth', values.out!));
+  return 0;
+}
+
 function printStatus(suggestions: Suggestion[], lang: Lang) {
   const labels = { done: 'DONE?', check: 'CHECK', 'missing-tag': 'MISSING-TAG', 'missing-link': 'MISSING-LINK', mention: 'MENTION' };
   // strongest first; plan order within each kind
@@ -50,11 +137,6 @@ function printStatus(suggestions: Suggestion[], lang: Lang) {
 
 function main(argv: string[]): number {
   const [cmd, ...rest] = argv;
-  const language = (value?: string): Lang => {
-    const lang = value ?? process.env.PLAN_ATLAS_LANG ?? 'en';
-    if (lang !== 'en' && lang !== 'zh-TW') throw new Error(t('en', 'badLang', lang));
-    return lang;
-  };
   if (!cmd || cmd === '-h' || cmd === '--help') {
     console.log(t(language(), 'help'));
     return 0;
@@ -103,6 +185,7 @@ function main(argv: string[]): number {
     else printStatus(suggestions, lang);
     return 0;
   }
+  if (cmd === 'health') return runHealth(rest);
   const { values, positionals } = parseArgs({
     args: rest, allowPositionals: true,
     options: { ...workspaceOptions, lang: { type: 'string' }, out: { type: 'string', default: 'atlas' }, against: { type: 'string' }, before: { type: 'string' }, after: { type: 'string' }, changed: { type: 'string' }, annotations: { type: 'string' } },
@@ -175,14 +258,7 @@ function main(argv: string[]): number {
   const loaded = workspaceLoaded ?? loadFiles(positionals, values.against, lang, confine);
   if (workspaceLoaded) printRefs(workspaceLoaded, lang);
   const { model, findings } = loaded;
-  if (cmd === 'build' && model) {
-    mkdirSync(values.out!, { recursive: true });
-    writeFileSync(join(values.out!, 'atlas.json'), JSON.stringify(derive(model), null, 2) + '\n');
-    writeFileSync(join(values.out!, 'atlas.md'), markdown(model, findings, lang));
-    writeFileSync(join(values.out!, 'atlas.drawio'), drawio(model, lang));
-    writeFileSync(join(values.out!, 'atlas.html'), renderHtml(model, findings, undefined, lang));
-    console.log(t(lang, 'wrote', values.out!, model.pages.size, model.items.length));
-  }
+  if (cmd === 'build' && model) writeAtlas(values.out!, model, findings, lang);
   const files = loaded.files ?? new Map((workspaceLoaded?.entries ?? []).flatMap((e) =>
     e.file ? [[e.entry?.namespace ?? namespaceOf(e.plan), relative(process.cwd(), e.file).split(sep).join('/')] as [string, string]] : []));
   // A remote workspace has no file in this checkout, so a finding with no file is not annotated.

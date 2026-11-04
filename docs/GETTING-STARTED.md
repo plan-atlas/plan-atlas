@@ -345,3 +345,19 @@ jobs:
 ```
 
 To pin plan-atlas here, replace the clone with a fetch of a specific commit. Add `--against atlas/atlas.json` to the check step to compare with a committed map. This version leaves out `status --git`: its suggestions are for a person to review, not a pass or fail.
+
+**A hub: combined map and health issue.** Copy [examples/hub/plan-health.yml](../examples/hub/plan-health.yml) to `.github/workflows/` in the hub repository, and keep `plan-atlas.workspace.json` at the hub root. The workflow pins plan-atlas at `v0.2.0`. It runs once a day and on demand.
+
+Create a fine-grained secret `PLAN_ATLAS_TOKEN` with `contents: read`, `issues: read` and `pull_requests: read` on the member repositories. `issues: read` and `pull_requests: read` are for status suggestions. With `--no-status`, `contents: read` is enough. The secret reads private members. Public members need no extra token.
+
+The workflow has two jobs. `health` has `contents: read`: it checks out the hub and plan-atlas, runs the health command, and uploads `atlas/` as an artifact named `plan-atlas`. `issue` needs that job and has `issues: write`. It creates or edits one open issue titled "Plan health" with the label `plan-atlas`. Editing the body sends no notification. The hidden first line `<!-- plan-atlas:health -->` is how the next run finds that issue.
+
+`plan-atlas health --workspace plan-atlas.workspace.json --out atlas` writes the combined map (`atlas.json`, `atlas.md`, `atlas.drawio`, `atlas.html`) when the plans load, and always writes `health.md` and `health-issue.md`. The issue file is the same report, cut to fit a GitHub issue. The run exits 0 when both reports were written, even when a finding is an ERROR. `--no-status` skips the status suggestions.
+
+GitHub Pages is off unless the repository variable `PLAN_ATLAS_PAGES` is `true`. Pages must be set to deploy from GitHub Actions (Settings → Pages → Source). On Free, Pro and Team plans the Pages site of a private repository is public, and the map holds every member's titles, quotes and evidence. On a public hub the artifact and the issue expose the same member text as a Pages site would. Leave the variable unset unless a public map is acceptable.
+
+A member repository can trigger the hub after it merges (`repository_dispatch`, type `plan-atlas`). That block is commented out in the example. Turning it on needs a token with write access to the hub, stored in every member, and each dispatch spends Actions minutes on the hub.
+
+A namespace or file rename takes three merges. The member's pull request is checked against the hub's current workspace, so it reports V0.34 (the file's namespace no longer matches) or V0.35 (the old file cannot be read). `fail-on: none` lets that pull request merge. The hub's workspace is updated next. The run after that is clean. Do not change the plan to silence that ERROR.
+
+Scheduled workflows in a public repository stop after 60 days without activity. The `Last run:` line in the issue shows when the last run happened.

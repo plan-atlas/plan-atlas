@@ -134,7 +134,7 @@ test('namespace mismatches stay ERROR even with allow-missing, including CI rena
   const file = workspace([remote('sdk')]);
   const ci = loadWorkspace(file, [local], { run: noFetch, allowMissing: true, repository: 'org/sdk', repositoryRoot: dir });
   assert.equal(ci.model, null);
-  assert.ok(ci.findings.some((f) => f.level === 'ERROR' && /namespace sdk does not match file namespace renamed/.test(f.message)));
+  assert.ok(ci.findings.some((f) => f.level === 'ERROR' && f.namespace === 'sdk' && /namespace sdk does not match file namespace renamed/.test(f.message)));
   const copied = save('temporary-copy.json', wrong);
   assert.equal(loadWorkspace(file, [copied], { run: noFetch, repository: 'org/sdk', repositoryRoot: dir }).findings[0].level, 'ERROR');
   for (const lang of ['en', 'zh-TW'] as const) {
@@ -191,12 +191,14 @@ test('unreadable entries are ERROR or WARN; partial GraphQL data still loads rea
     const loaded = loadWorkspace(file, [], { allowMissing, run: () => ({ data: { p0: reply(plan('sdk')), p1: null }, errors: [{ message: 'not found' }] }) });
     assert.equal(loaded.entries.length, 1);
     assert.deepEqual(loaded.findings.map((f) => f.level), [allowMissing ? 'WARN' : 'ERROR', allowMissing ? 'WARN' : 'ERROR']);
+    assert.deepEqual(loaded.findings.map((f) => f.namespace), ['web', 'api']);
     assert.match(loaded.findings[1].message, /not found/);
     assert.equal(!!loaded.model, allowMissing);
   }
   for (const run of [() => { throw new Error('offline'); }, () => ({ errors: [{ message: 'denied' }] }), () => ({ data: { p0: { base: blob(plan('sdk')) } } })]) {
     const loaded = loadWorkspace(workspace([remote('sdk')]), [], { allowMissing: true, run });
     assert.equal(loaded.findings[0].level, 'WARN');
+    assert.equal(loaded.findings[0].namespace, 'sdk');
     assert.equal(loaded.entries.length, 0);
   }
   const missing = readWorkspace(file + '.missing', [], { allowMissing: true, run: noFetch });
@@ -387,6 +389,8 @@ test('an unreadable self file is ERROR even with allow-missing', (t) => {
   const file = workspace([{ namespace: 'sdk', github: 'org/sdk', file: 'plans/sdk.json' }]);
   const loaded = readWorkspace(file, [], { cwd: dir, self: ['sdk'], allowMissing: true, repository: 'org/sdk', run: noFetch });
   assert.deepEqual(loaded.findings.map((f) => f.level), ['ERROR']);
+  assert.equal(loaded.findings[0].namespace, 'sdk');
+  assert.equal(loaded.findings[0].file, 'plans/sdk.json');
   assert.match(loaded.findings[0].message, /Cannot read workspace entry/);
 });
 
@@ -408,9 +412,9 @@ test('V0.36 warns both ways, skips path entries, and is quiet without a reposito
       assert.doesNotMatch(q, /plans\/api\.json|plans\/web\.json/);
       return { data: { p0: reply(plan('sdk')) } };
     } });
-    assert.deepEqual(met.findings.map((f) => f.message), [
-      'Entry sdk (org/sdk) is part of this repository (org/sdk) but is not in the self set',
-      'Self entry api (org/api) is not this repository (org/sdk)',
+    assert.deepEqual(met.findings, [
+      { level: 'WARN', code: 'V0', namespace: 'sdk', message: 'Entry sdk (org/sdk) is part of this repository (org/sdk) but is not in the self set' },
+      { level: 'WARN', code: 'V0', namespace: 'api', message: 'Self entry api (org/api) is not this repository (org/sdk)' },
     ]);
     const quiet = readWorkspace(file, [], { cwd: dir, self: ['api', 'web'], run: () => ({ data: { p0: reply(plan('sdk')) } }) });
     assert.equal(quiet.findings.filter((f) => f.level === 'WARN').length, 0);
@@ -493,6 +497,8 @@ test('a path entry in a github: workspace is workspaceRemotePath unless it is se
   assert.equal(blocked.entries.length, 0);
   assert.equal(blocked.workspace, null);
   assert.equal(blocked.findings[0].level, 'ERROR');
+  assert.equal(blocked.findings[0].namespace, 'web');
+  assert.equal(blocked.findings[0].file, undefined);
   assert.match(blocked.findings[0].message, /Workspace entry web uses path/);
   const selfPath = readWorkspace('github:org/sdk:plans/workspace.json@main', [], {
     cwd: dir, self: ['web'], run: (q) => {
